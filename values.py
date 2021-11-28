@@ -29,10 +29,11 @@ def _pack_integral_type(
         max_value = (1 << (n_bits + 1)) - 1
 
     un = "un" if not signed else ""
-    assert min_value <= num <= max_value, (
-        f"Cannot represent number {num} in "
-        f"{un}signed integral type of size {size} bytes"
-    )
+    if not min_value <= num <= max_value:
+        raise ValueError(
+            f"Cannot represent number {num} in "
+            f"{un}signed integral type of size {size} bytes"
+        )
 
     mask = sum(0xFF << (i * 8) for i in range(size))
     num &= mask
@@ -229,7 +230,11 @@ class ArrayValue(Value):
                 for i in range(array_type.count)
             ]
         else:
-            assert len(values) == self.type.count
+            if len(values) != self.type.count:
+                raise ValueError(
+                    "Wrong number of values to initialize array. "
+                    f"Expected {self.type.count} items, got {len(values)}."
+                )
             self.values = [
                 val.copy(
                     address_base=self, offset=i * self.type.member_type.size
@@ -414,10 +419,11 @@ class PointerValue(Value):
             pointed_address = 0
         else:
             pointed_address = self.pointed_address
-        assert pointed_address is not None, (
-            "Cannot pack a pointer that references an object with unresolved "
-            "address!"
-        )
+        if pointed_address is None:
+            raise ValueError(
+                "Cannot pack a pointer that references an object with unresolved "
+                "address!"
+            )
         # TODO support big endian
         return _pack_integral_type(
             pointed_address,
@@ -524,7 +530,11 @@ class StructValue(Value):
             and field_type.member_type.size == 1
         ):
             buf = val.encode("utf-8")
-            assert len(buf) <= field_type.count
+            if len(buf) > field_type.count:
+                raise ValueError(
+                    f"String is too long ({len(buf)} bytes) "
+                    f"to fit in char[{field_type.count}]"
+                )
             padded_buf = buf + b"\0" * (field_type.count - len(buf))
             wrappedVal = ArrayValue(
                 field_type,
@@ -555,7 +565,7 @@ class StructValue(Value):
             field_value = self.fields[type_field.name]
             try:
                 field_bytes = field_value.pack()
-            except AssertionError:
+            except Exception:
                 print(f"unable to pack field {type_field.name}")
                 raise
 
