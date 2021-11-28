@@ -69,3 +69,8 @@ The result:
 0000560a61df4050  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |................|
 0000560a61df4060  00 40 df 61 0a 56 00 00  00 40 df 61 0a 56 00 00  |.@.a.V...@.a.V..|
 ```
+
+### See Also
+
+Connor, Richard J. III, *Improved Architectures for Secure Intra-process Isolation.* PhD diss., University of Tennessee, 2021.
+https://trace.tennessee.edu/utk_graddiss/6533
