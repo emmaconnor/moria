@@ -42,13 +42,13 @@ You can set field values, including nested types and pointers that reference oth
 ```
 user1.id = 1
 user1.name = "alice"
-user1.next = user2.get_pointer()
-user1.prev = user2.get_pointer()
+user1.next = user2.ref()
+user1.prev = user2.ref()
 
 user2.id = 2
 user2.name = "bob"
-user2.next = user1.get_pointer()
-user2.prev = user1.get_pointer()
+user2.next = user1.ref()
+user2.prev = user1.ref()
 ```
 
 Finally, you can pack your collection of objects into a byte array, automatically computing pointer values using a base address, ready to be injected into the target address space!
