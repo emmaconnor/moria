@@ -13,3 +13,59 @@ A library for interacting with in-memory C structures. With Moria, you can:
 
 Data-only memory corruption exploits can involve reading and writing complex data structures in the target address space. Moria makes development of these types of exploits much easier. 
 
+## Examples
+
+Moria can manipulate complicated in-memory C datastructures using high-level python objects. For example, take the following linked list of user data:
+
+```
+struct user
+{
+    int id;
+    char name[MAX_USERNAME_LEN];
+    struct user *prev;
+    struct user *next;
+};
+```
+
+Moria can automatically extract the types, sizes, and offsets of the structure from binary compiled with debug info:
+
+```
+with open("uesrlist.bin", "rb") as binary:
+    structs = DwarfParser(binary).parse()
+
+user1 = structs.user()
+user2 = structs.user()
+```
+
+You can set field values, including nested types and pointers that reference other objects, fields, or values:
+
+```
+user1.id = 1
+user1.name = "alice"
+user1.next = user2.get_pointer()
+user1.prev = user2.get_pointer()
+
+user2.id = 2
+user2.name = "bob"
+user2.next = user1.get_pointer()
+user2.prev = user1.get_pointer()
+```
+
+Finally, you can pack your collection of objects into a byte array, automatically computing pointer values using a base address, ready to be injected into the target address space!
+
+```
+start_address = 0x560A61DF4000 # e.g. heap address
+packed = namespace.pack_values(start_address, 0x1000, [user1, user2])
+```
+
+The result:
+
+```
+0000560a61df4000  01 00 00 00 61 6c 69 63  65 00 00 00 00 00 00 00  |....alice.......|
+0000560a61df4010  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |................|
+0000560a61df4020  00 00 00 00 00 00 00 00  38 40 df 61 0a 56 00 00  |........8@.a.V..|
+0000560a61df4030  38 40 df 61 0a 56 00 00  02 00 00 00 62 6f 62 00  |8@.a.V......bob.|
+0000560a61df4040  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |................|
+0000560a61df4050  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |................|
+0000560a61df4060  00 40 df 61 0a 56 00 00  00 40 df 61 0a 56 00 00  |.@.a.V...@.a.V..|
+```
