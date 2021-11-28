@@ -18,13 +18,13 @@ def main():
 
     user1.id = 1
     user1.name = "alice"
-    user1.next = user2.get_pointer()
-    user1.prev = user2.get_pointer()
+    user1.next = user2.ref()
+    user1.prev = user2.ref()
 
     user2.id = 2
     user2.name = "bob"
-    user2.next = user1.get_pointer()
-    user2.prev = user1.get_pointer()
+    user2.next = user1.ref()
+    user2.prev = user1.ref()
 
     start_address = 0x560A61DF4000
     packed = namespace.pack_values(start_address, 0x1000, [user1, user2])

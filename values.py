@@ -53,7 +53,7 @@ class Value(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_pointer(self) -> PointerValue:
+    def ref(self) -> PointerValue:
         raise NotImplementedError
 
     @abstractmethod
@@ -96,7 +96,7 @@ class VoidValue(Value):
     ) -> VoidValue:
         return VoidValue(address_base=address_base, offset=offset)
 
-    def get_pointer(self) -> PointerValue:
+    def ref(self) -> PointerValue:
         return PointerValue(PointerType(self.type), referenced_value=self)
 
     def pack(self) -> bytes:
@@ -138,7 +138,7 @@ class IntValue(Value):
             offset=offset,
         )
 
-    def get_pointer(self) -> PointerValue:
+    def ref(self) -> PointerValue:
         return PointerValue(PointerType(self.type), referenced_value=self)
 
     def __repr__(self) -> str:
@@ -216,7 +216,7 @@ class ArrayValue(Value):
             offset=offset,
         )
 
-    def get_pointer(self) -> PointerValue:
+    def ref(self) -> PointerValue:
         return PointerValue(PointerType(self.type), referenced_value=self)
 
     def is_initialized(self) -> bool:
@@ -265,7 +265,7 @@ class BufferValue(Value):
             yield self.address_base
         yield from self.values
 
-    def get_pointer(self) -> PointerValue:
+    def ref(self) -> PointerValue:
         return PointerValue(PointerType(self.type), referenced_value=self)
 
     def copy(
@@ -310,7 +310,7 @@ class PointerValue(Value):
 
     @staticmethod
     def raw(address: int) -> PointerValue:
-        return VoidValue(address_base=None, offset=address).get_pointer()
+        return VoidValue(address_base=None, offset=address).ref()
 
     @staticmethod
     def null() -> PointerValue:
@@ -322,7 +322,7 @@ class PointerValue(Value):
         if self.referenced_value is not None:
             yield self.referenced_value
 
-    def get_pointer(self) -> PointerValue:
+    def ref(self) -> PointerValue:
         return PointerValue(PointerType(self.type), referenced_value=self)
 
     def copy(
@@ -406,7 +406,7 @@ class StructValue(Value):
             yield self.address_base
         yield from self.fields.values()
 
-    def get_pointer(self) -> PointerValue:
+    def ref(self) -> PointerValue:
         return PointerValue(PointerType(self.type), referenced_value=self)
 
     def copy(
