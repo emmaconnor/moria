@@ -72,5 +72,6 @@ The result:
 
 ### See Also
 
-Connor, Richard J. III, *Improved Architectures for Secure Intra-process Isolation.* PhD diss., University of Tennessee, 2021.
+1. Connor, Richard J. III, *Improved Architectures for Secure Intra-process Isolation.* PhD diss., University of Tennessee, 2021.
 https://trace.tennessee.edu/utk_graddiss/6533
+2. [proc/mem attack](https://github.com/josconno/proc-mem-attack)
