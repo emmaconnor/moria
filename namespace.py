@@ -9,16 +9,19 @@ from typing import (
 # we already have a "Type" class, so we need to avoid a name conflict here
 from typing import Type as PyType
 import re
+from arch import Arch
 
-from basetypes import StructType
+import basetypes
 from values import TypedStructValue, Value
 
 
 class Namespace:
+    arch: Arch
     struct_types: MutableMapping[str, PyType[TypedStructValue]]
 
-    def __init__(self) -> None:
-        self.structs: MutableMapping[str, StructType] = {}
+    def __init__(self, arch: Arch) -> None:
+        self.arch = arch
+        self.structs: MutableMapping[str, basetypes.StructType] = {}
         self.struct_types = {}
 
     def pack_values(
@@ -46,11 +49,11 @@ class Namespace:
 
         return b"".join(val.pack() for val in packed_values)
 
-    def get_or_create_struct_type(self, name: str) -> StructType:
+    def get_or_create_struct_type(self, name: str) -> basetypes.StructType:
         struct = self.structs.get(name)
         if struct is not None:
             return struct
-        struct = StructType(name)
+        struct = basetypes.StructType(self, name)
         self.structs[name] = struct
         return struct
 

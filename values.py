@@ -11,12 +11,14 @@ from typing import (
 # we already have a "Type" class, so we need to avoid a name conflict here
 from typing import Type as PyType
 from abc import ABC, abstractmethod
+from arch import Endianness
 
-from basetypes import ArrayType, BaseType, PointerType, StructType, Type
+import namespace as ns
+import basetypes
 
 
 def _pack_integral_type(
-    num: int, size: int, signed: bool = True, big_endian=False
+    num: int, size: int, signed: bool, endianness: Endianness
 ) -> bytes:
     n_bits = size * 8
     if signed:
@@ -35,15 +37,26 @@ def _pack_integral_type(
     mask = sum(0xFF << (i * 8) for i in range(size))
     num &= mask
     little_endian_bytes = [(num >> (i * 8)) & 0xFF for i in range(size)]
-    if big_endian:
+    if endianness == Endianness.BIG:
         return bytes(little_endian_bytes[::-1])
     return bytes(little_endian_bytes)
 
 
 class Value(ABC):
-    type: Type
+    type: basetypes.Type
     address_base: Optional[Value]
     offset: Optional[int]
+
+    @abstractmethod
+    def __init__(
+        self,
+        t: basetypes.Type,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ) -> None:
+        self.type = t
+        self.address_base: Optional[Value] = address_base
+        self.offset: Optional[int] = offset
 
     @property
     def address(self) -> Optional[int]:
@@ -58,6 +71,10 @@ class Value(ABC):
             return None
         return addr
 
+    @property
+    def namespace(self) -> ns.Namespace:
+        return self.type.namespace
+
     @abstractmethod
     def copy(
         self,
@@ -65,17 +82,6 @@ class Value(ABC):
         offset: Optional[int] = None,
     ) -> Value:
         raise NotImplementedError
-
-    @abstractmethod
-    def __init__(
-        self,
-        t: Type,
-        address_base: Optional[Value] = None,
-        offset: Optional[int] = None,
-    ) -> None:
-        self.type = t
-        self.address_base: Optional[Value] = address_base
-        self.offset: Optional[int] = offset
 
     @abstractmethod
     def is_initialized(self) -> bool:
@@ -94,14 +100,14 @@ class Value(ABC):
         raise NotImplementedError
 
     @staticmethod
-    def get_class_for_type(t: Type) -> PyType[Value]:
-        if isinstance(t, ArrayType):
+    def get_class_for_type(t: basetypes.Type) -> PyType[Value]:
+        if isinstance(t, basetypes.ArrayType):
             return ArrayValue
-        if isinstance(t, PointerType):
+        if isinstance(t, basetypes.PointerType):
             return PointerValue
-        if isinstance(t, StructType):
+        if isinstance(t, basetypes.StructType):
             return StructValue
-        if isinstance(t, BaseType):
+        if isinstance(t, basetypes.BaseType):
             return IntValue
         raise ValueError("unknown type")
 
@@ -112,7 +118,11 @@ class VoidValue(Value):
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ):
-        super().__init__(BaseType("void", None), address_base, offset)
+        super().__init__(
+            basetypes.BaseType(self.namespace, "void", None),
+            address_base,
+            offset,
+        )
 
     def iter_referenced_values(self) -> Iterable[Value]:
         if self.address_base is not None:
@@ -126,7 +136,9 @@ class VoidValue(Value):
         return VoidValue(address_base=address_base, offset=offset)
 
     def ref(self) -> PointerValue:
-        return PointerValue(PointerType(self.type), referenced_value=self)
+        return PointerValue(
+            basetypes.PointerType(self.type), referenced_value=self
+        )
 
     def pack(self) -> bytes:
         raise NotImplementedError("Cannot serialize void types")
@@ -136,11 +148,11 @@ class VoidValue(Value):
 
 
 class IntValue(Value):
-    type: BaseType
+    type: basetypes.BaseType
 
     def __init__(
         self,
-        int_type: BaseType,
+        int_type: basetypes.BaseType,
         value: Optional[int] = None,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
@@ -168,7 +180,9 @@ class IntValue(Value):
         )
 
     def ref(self) -> PointerValue:
-        return PointerValue(PointerType(self.type), referenced_value=self)
+        return PointerValue(
+            basetypes.PointerType(self.type), referenced_value=self
+        )
 
     def __repr__(self) -> str:
         value_str = (
@@ -183,18 +197,20 @@ class IntValue(Value):
         val = self.value
         if val is None:
             val = 0
-        # TODO support big endian
         return _pack_integral_type(
-            val, self.type.size, signed=self.type.is_signed, big_endian=False
+            val,
+            self.type.size,
+            signed=self.type.is_signed,
+            endianness=self.namespace.arch.endianness,
         )
 
 
 class ArrayValue(Value):
-    type: ArrayType
+    type: basetypes.ArrayType
 
     def __init__(
         self,
-        array_type: ArrayType,
+        array_type: basetypes.ArrayType,
         values: Optional[List[Value]] = None,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
@@ -239,7 +255,9 @@ class ArrayValue(Value):
         )
 
     def ref(self) -> PointerValue:
-        return PointerValue(PointerType(self.type), referenced_value=self)
+        return PointerValue(
+            basetypes.PointerType(self.type), referenced_value=self
+        )
 
     def is_initialized(self) -> bool:
         return all(val.is_initialized() for val in self.values)
@@ -268,7 +286,7 @@ class ArrayValue(Value):
 class BufferValue(Value):
     def __init__(
         self,
-        elem_type: Type,
+        elem_type: basetypes.Type,
         values: Optional[List[Value]] = None,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
@@ -288,7 +306,9 @@ class BufferValue(Value):
         yield from self.values
 
     def ref(self) -> PointerValue:
-        return PointerValue(PointerType(self.type), referenced_value=self)
+        return PointerValue(
+            basetypes.PointerType(self.type), referenced_value=self
+        )
 
     def copy(
         self,
@@ -318,11 +338,11 @@ class BufferValue(Value):
 
 
 class PointerValue(Value):
-    type: PointerType
+    type: basetypes.PointerType
 
     def __init__(
         self,
-        pointer_type: PointerType,
+        pointer_type: basetypes.PointerType,
         referenced_value: Optional[Value] = None,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
@@ -351,7 +371,9 @@ class PointerValue(Value):
             yield self.referenced_value
 
     def ref(self) -> PointerValue:
-        return PointerValue(PointerType(self.type), referenced_value=self)
+        return PointerValue(
+            basetypes.PointerType(self.type), referenced_value=self
+        )
 
     def copy(
         self,
@@ -385,7 +407,6 @@ class PointerValue(Value):
         return f"<PointerValue to {pointed_type}>"
 
     def pack(self) -> bytes:
-        # TODO support big endian
         assert (
             self.type.size is not None
         ), "Cannot serialize pointer of unresolved size"
@@ -399,16 +420,19 @@ class PointerValue(Value):
         )
         # TODO support big endian
         return _pack_integral_type(
-            pointed_address, self.type.size, signed=False, big_endian=False
+            pointed_address,
+            self.type.size,
+            signed=False,
+            endianness=self.namespace.arch.endianness,
         )
 
 
 class StructValue(Value):
-    type: StructType
+    type: basetypes.StructType
 
     def __init__(
         self,
-        struct_type: StructType,
+        struct_type: basetypes.StructType,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ):
@@ -428,7 +452,9 @@ class StructValue(Value):
         yield from self.fields.values()
 
     def ref(self) -> PointerValue:
-        return PointerValue(PointerType(self.type), referenced_value=self)
+        return PointerValue(
+            basetypes.PointerType(self.type), referenced_value=self
+        )
 
     def copy(
         self,
@@ -470,29 +496,31 @@ class StructValue(Value):
             return super().__setattr__(name, val)
         field_type = self.fields[name].type
         offset = self.fields[name].offset
-        if isinstance(val, int) and isinstance(field_type, BaseType):
+        if isinstance(val, int) and isinstance(field_type, basetypes.BaseType):
             wrappedVal = IntValue(
                 field_type, value=val, address_base=self, offset=offset
             )
         elif (
             isinstance(val, str)
-            and isinstance(field_type, PointerType)
+            and isinstance(field_type, basetypes.PointerType)
             and field_type.referenced_type.size == 1
         ):
-            char_type = BaseType("char", 1)
+            char_type = basetypes.BaseType(
+                self.namespace, "char", 1
+            )  # TODO pre-gen standard types in namespace
             string_buffer = BufferValue(
                 char_type,
                 [IntValue(char_type, c) for c in val.encode("utf-8")],
             )
             wrappedVal = PointerValue(
-                PointerType(field_type),
+                basetypes.PointerType(field_type),
                 referenced_value=string_buffer,
                 address_base=self,
                 offset=offset,
             )
         elif (
             isinstance(val, str)
-            and isinstance(field_type, ArrayType)
+            and isinstance(field_type, basetypes.ArrayType)
             and field_type.member_type.size == 1
         ):
             buf = val.encode("utf-8")
@@ -500,7 +528,10 @@ class StructValue(Value):
             padded_buf = buf + b"\0" * (field_type.count - len(buf))
             wrappedVal = ArrayValue(
                 field_type,
-                values=[IntValue(BaseType("char", 1), c) for c in padded_buf],
+                values=[
+                    IntValue(basetypes.BaseType(self.namespace, "char", 1), c)
+                    for c in padded_buf
+                ],
                 address_base=self,
                 offset=offset,
             )
@@ -540,7 +571,7 @@ class StructValue(Value):
 
 
 class TypedStructValue(StructValue):
-    type: ClassVar[StructType]
+    type: ClassVar[basetypes.StructType]
 
     def __init__(
         self,

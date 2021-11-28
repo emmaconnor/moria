@@ -4,9 +4,15 @@ from dataclasses import dataclass
 from typing import Optional
 
 from util import SortedList
+import namespace as ns
 
 
 class Type(ABC):
+    namespace: ns.Namespace
+
+    def __init__(self, namespace: ns.Namespace):
+        self.namespace = namespace
+
     @property
     @abstractmethod
     def name(self) -> str:
@@ -20,6 +26,7 @@ class Type(ABC):
 
 @dataclass
 class BaseType(Type):
+    namespace: ns.Namespace
     _name: str
     _size: Optional[int]
 
@@ -29,7 +36,7 @@ class BaseType(Type):
 
     @property
     def is_signed(self) -> bool:
-        return 'unsigned' not in self.name.split()
+        return "unsigned" not in self.name.split()
 
     @property
     def size(self) -> Optional[int]:
@@ -38,6 +45,7 @@ class BaseType(Type):
 
 @dataclass
 class ArrayType(Type):
+    namespace: ns.Namespace
     member_type: Type
     count: int
 
@@ -57,9 +65,15 @@ class PointerType(Type):
     referenced_type: Type
     _size: Optional[int]
 
-    def __init__(self, referenced_type: Type, _size: Optional[int] = 8):
+    def __init__(self, referenced_type: Type, size: Optional[int] = None):
+        super().__init__(referenced_type.namespace)
         self.referenced_type = referenced_type
-        self._size = _size
+        self._size = self.namespace.arch.pointer_size
+        if size is not None and size != self._size:
+            raise ValueError(
+                "Inconsistent pointer sizes! Current namespace "
+                f"architecture uses {self._size} bytes, but got {size} bytes."
+            )
 
     @property
     def name(self) -> str:
@@ -72,6 +86,7 @@ class PointerType(Type):
 
 @dataclass
 class StructField:
+    namespace: ns.Namespace
     offset: int
     field_type: Type
     name: str
@@ -95,7 +110,8 @@ class StructType(Type):
     _name: str
     fields: SortedList[StructField]
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, namespace: ns.Namespace, name: str) -> None:
+        super().__init__(namespace)
         self._name = name
         self.fields = SortedList(key=StructField.compare_offsets)
 

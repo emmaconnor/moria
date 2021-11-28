@@ -2,6 +2,7 @@ from typing import Iterable, BinaryIO
 
 from elftools.elf.elffile import ELFFile
 from elftools.dwarf.die import DIE
+from arch import Arch, Endianness
 
 from basetypes import (
     BaseType,
@@ -16,12 +17,26 @@ from namespace import Namespace
 class DwarfParser:
     def __init__(self, stream: BinaryIO) -> None:
         self.elf_file = ELFFile(stream)
+
+        if self.elf_file.elfclass in (32, 64):
+            word_size = self.elf_file.elfclass // 8
+        else:
+            raise NotImplementedError(
+                f"Unsupported elf class: {self.elf_file.elfclass}"
+            )
+
+        endianness = (
+            Endianness.LITTLE
+            if self.elf_file.little_endian
+            else Endianness.BIG
+        )
+
         if not self.elf_file.has_dwarf_info():
             raise ValueError("File has no DWARf debug info.")
             return
 
         self.dwarf_info = self.elf_file.get_dwarf_info()
-        self.namespace = Namespace()
+        self.namespace = Namespace(Arch(endianness, word_size))
 
     def parse(self) -> Namespace:
         for compilation_unit in self.dwarf_info.iter_CUs():
@@ -49,7 +64,9 @@ class DwarfParser:
                 "DW_AT_data_member_location"
             ].value
             struct.add_field(
-                StructField(member_offset, member_type, member_name)
+                StructField(
+                    self.namespace, member_offset, member_type, member_name
+                )
             )
 
     def resolve_type(self, die: DIE) -> Type:
@@ -58,7 +75,9 @@ class DwarfParser:
             and "DW_AT_type" not in die.attributes
         ):
             type_size = die.attributes.get("DW_AT_byte_size").value
-            return PointerType(BaseType("void", None), type_size)
+            return PointerType(
+                BaseType(self.namespace, "void", None), type_size
+            )
 
         type_die = die.get_DIE_from_attribute("DW_AT_type")
         if type_die.tag == "DW_TAG_pointer_type":
@@ -70,7 +89,7 @@ class DwarfParser:
             elem_type = self.resolve_type(type_die)
             array_type = elem_type
             for count in counts:
-                array_type = ArrayType(array_type, count)
+                array_type = ArrayType(self.namespace, array_type, count)
             return array_type
         elif type_die.tag == "DW_TAG_structure_type":
             type_name = type_die.attributes.get("DW_AT_name").value.decode(
@@ -82,7 +101,7 @@ class DwarfParser:
                 "utf-8"
             )
             type_size = type_die.attributes.get("DW_AT_byte_size").value
-            return BaseType(type_name, type_size)
+            return BaseType(self.namespace, type_name, type_size)
         elif type_die.tag == "DW_TAG_typedef":
             if "DW_AT_type" in type_die.attributes:
                 return self.resolve_type(type_die)
@@ -91,7 +110,9 @@ class DwarfParser:
             )
             type_size = type_die.attributes.get("DW_AT_byte_size")
             return BaseType(
-                type_name, type_size.value if type_size is not None else None
+                self.namespace,
+                type_name,
+                type_size.value if type_size is not None else None,
             )
         else:
             raise NotImplementedError(f"Unknown type tag: {type_die.tag}")
