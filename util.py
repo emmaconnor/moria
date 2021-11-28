@@ -1,6 +1,23 @@
 from typing import Callable, Iterator, Generic, TypeVar, List
 
-T = TypeVar('T')
+
+def hexdump(data: bytes, start_address: int = 0) -> None:
+    chunk_size = 16
+    group_size = 8
+    for i in range(0, len(data), chunk_size):
+        chunk = data[i : i + chunk_size]
+        hex_bytes = [f"{byte:02x}" for byte in chunk]
+        hex_chunks = []
+        for j in range(0, len(chunk), group_size):
+            hex_chunk = hex_bytes[j : j + group_size]
+            hex_chunks.append(" ".join(hex_chunk))
+
+        data_hex = "  ".join(hex_chunks)
+        ascii = "".join([chr(i) if 32 <= i <= 127 else "." for i in chunk])
+        print(f"{start_address+i:016x}  {data_hex:<48}  |{ascii}|")
+
+
+T = TypeVar("T")
 
 
 class SortedList(Generic[T]):
@@ -22,9 +39,15 @@ class SortedList(Generic[T]):
                 max_index = midpoint
                 min_index = midpoint
 
-        assert(0 <= min_index <= len(self.elements))
+        assert 0 <= min_index <= len(self.elements)
         self.elements.insert(min_index, elem)
         return min_index
+
+    def __getitem__(self, i: int) -> T:
+        return self.elements[i]
+
+    def __len__(self) -> int:
+        return len(self.elements)
 
     def __iter__(self) -> Iterator[T]:
         return (elem for elem in self.elements)

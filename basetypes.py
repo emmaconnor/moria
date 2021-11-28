@@ -10,12 +10,12 @@ class Type(ABC):
     @property
     @abstractmethod
     def name(self) -> str:
-        raise NotImplementedError('base type does not have a name')
+        raise NotImplementedError
 
     @property
     @abstractmethod
     def size(self) -> Optional[int]:
-        raise NotImplementedError('base type does not have a size')
+        raise NotImplementedError
 
 
 @dataclass
@@ -39,8 +39,8 @@ class ArrayType(Type):
 
     @property
     def name(self) -> str:
-        count_repr = str(self.count) if self.count > 0 else ''
-        return f'{self.member_type.name}[{count_repr}]'
+        count_repr = str(self.count) if self.count > 0 else ""
+        return f"{self.member_type.name}[{count_repr}]"
 
     @property
     def size(self) -> Optional[int]:
@@ -49,14 +49,17 @@ class ArrayType(Type):
         return None
 
 
-@dataclass
 class PointerType(Type):
     referenced_type: Type
     _size: Optional[int]
 
+    def __init__(self, referenced_type: Type, _size: Optional[int] = 8):
+        self.referenced_type = referenced_type
+        self._size = _size
+
     @property
     def name(self) -> str:
-        return f'{self.referenced_type.name}*'
+        return f"{self.referenced_type.name}*"
 
     @property
     def size(self) -> Optional[int]:
@@ -69,8 +72,11 @@ class StructField:
     field_type: Type
     name: str
 
+    def __repr__(self) -> str:
+        return f"<StructField {self.field_type.name} {self.name}>"
+
     def __str__(self) -> str:
-        return f'0x{self.offset:04x}: {self.field_type.name} {self.name}'
+        return f"{self.field_type.name} {self.name}"
 
     @staticmethod
     def compare_offsets(x: StructField, y: StructField) -> int:
@@ -93,15 +99,24 @@ class StructType(Type):
         self.fields.insert(field)
 
     def print_struct(self) -> None:
-        print(f'{self.name} {{')
+        print(f"{self.name} {{")
         for field in self.fields:
-            print(f'  {field}')
-        print(f'}} = {self.size} bytes')
+            print(f"  {field}")
+        print(f"}} = {self.size} bytes")
+
+    def __repr__(self) -> str:
+        fields = ", ".join(str(field) for field in self.fields)
+        return f"<StructType {self.name}: {fields}>"
 
     @property
     def name(self) -> str:
-        return f'struct {self._name}'
+        return self._name
 
     @property
     def size(self) -> Optional[int]:
-        return sum(member.size for member in self.fields)
+        if len(self.fields) == 0:
+            return None
+        last_field = self.fields[len(self.fields) - 1]
+        if last_field.size is None:
+            return None
+        return last_field.offset + last_field.size
