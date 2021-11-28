@@ -1,12 +1,17 @@
+import sys
 from parsers.dwarf import DwarfParser
 from util import hexdump
 
-EXAMPLE_BIN_PATH = "example/a.out"
+EXAMPLE_BIN_PATH = "examples/userlist.bin"
 
 
 def main():
-    with open(EXAMPLE_BIN_PATH, "rb") as binary:
-        namespace = DwarfParser(binary).parse()
+    try:
+        with open(EXAMPLE_BIN_PATH, "rb") as binary:
+            namespace = DwarfParser(binary).parse()
+    except FileNotFoundError:
+        print(f"Binary {EXAMPLE_BIN_PATH} not found. Try building it first?")
+        return 1
 
     user1 = namespace.user()
     user2 = namespace.user()
@@ -25,6 +30,8 @@ def main():
     packed = namespace.pack_values(start_address, 0x1000, [user1, user2])
     hexdump(packed, start_address=start_address)
 
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
