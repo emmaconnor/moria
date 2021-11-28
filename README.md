@@ -15,7 +15,7 @@ Data-only memory corruption exploits can involve reading and writing complex dat
 
 ## Examples
 
-Moria can manipulate complicated in-memory C datastructures using high-level python objects. For example, take the following linked list of user data:
+Moria can manipulate complicated in-memory C datastructures using high-level python objects. For example, take the following C declaration for a linked list of user data:
 
 ```
 struct user
