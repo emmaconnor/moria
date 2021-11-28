@@ -28,6 +28,10 @@ class BaseType(Type):
         return self._name
 
     @property
+    def is_signed(self) -> bool:
+        return 'unsigned' not in self.name.split()
+
+    @property
     def size(self) -> Optional[int]:
         return self._size
 

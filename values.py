@@ -15,6 +15,31 @@ from abc import ABC, abstractmethod
 from basetypes import ArrayType, BaseType, PointerType, StructType, Type
 
 
+def _pack_integral_type(
+    num: int, size: int, signed: bool = True, big_endian=False
+) -> bytes:
+    n_bits = size * 8
+    if signed:
+        max_value = 1 << (n_bits) - 1
+        min_value = -max_value - 1
+    else:
+        min_value = 0
+        max_value = (1 << (n_bits + 1)) - 1
+
+    un = "un" if not signed else ""
+    assert min_value <= num <= max_value, (
+        f"Cannot represent number {num} in "
+        f"{un}signed integral type of size {size} bytes"
+    )
+
+    mask = sum(0xFF << (i * 8) for i in range(size))
+    num &= mask
+    little_endian_bytes = [(num >> (i * 8)) & 0xFF for i in range(size)]
+    if big_endian:
+        return bytes(little_endian_bytes[::-1])
+    return bytes(little_endian_bytes)
+
+
 class Value(ABC):
     type: Type
     address_base: Optional[Value]
@@ -22,6 +47,10 @@ class Value(ABC):
 
     @property
     def address(self) -> Optional[int]:
+        """Compute the address of the first byte of the value.
+        This may be None if the value has not yet been resolved to an address.
+        For values with a base_address value, the address is computed relative
+        to this value. Otherwise, offset is used as an absolute address."""
         addr = self.offset
         if addr is not None and self.address_base is not None:
             if self.address_base.address is not None:
@@ -35,7 +64,7 @@ class Value(ABC):
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ) -> Value:
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def __init__(
@@ -148,23 +177,16 @@ class IntValue(Value):
         return f"<{self.type.name} {value_str}>"
 
     def pack(self) -> bytes:
-        # TODO support big endian
         assert (
             self.type.size is not None
         ), "Cannot serialize type of unresolved size"
-        little_endian_bytes: List[int] = []
         val = self.value
         if val is None:
             val = 0
-        while val > 0:
-            little_endian_bytes.append(val & 0xFF)
-            val = val >> 8
-        assert (
-            len(little_endian_bytes) <= self.type.size
-        ), f"Invalid integer for size {self.type.size}: {self.value}"
-        padding = self.type.size - len(little_endian_bytes)
-        little_endian_bytes += [0] * padding
-        return bytes(little_endian_bytes)
+        # TODO support big endian
+        return _pack_integral_type(
+            val, self.type.size, signed=self.type.is_signed, big_endian=False
+        )
 
 
 class ArrayValue(Value):
@@ -319,7 +341,13 @@ class PointerValue(Value):
     def iter_referenced_values(self) -> Iterable[Value]:
         if self.address_base is not None:
             yield self.address_base
-        if self.referenced_value is not None:
+        # VoidValues have an address, but do not have a value themselves,
+        # so serializing the pointer does not require serializing the
+        # VoidValue itself. For this reason, do not traverse to the
+        # referenced value if it is a VoidValue.
+        if self.referenced_value is not None and not isinstance(
+            self.referenced_value, VoidValue
+        ):
             yield self.referenced_value
 
     def ref(self) -> PointerValue:
@@ -361,25 +389,18 @@ class PointerValue(Value):
         assert (
             self.type.size is not None
         ), "Cannot serialize pointer of unresolved size"
-        little_endian_bytes: List[int] = []
         if self.referenced_value is None:
-            val = 0
+            pointed_address = 0
         else:
-            val = self.pointed_address
-        assert val is not None, (
+            pointed_address = self.pointed_address
+        assert pointed_address is not None, (
             "Cannot pack a pointer that references an object with unresolved "
             "address!"
         )
-        while val > 0:
-            little_endian_bytes.append(val & 0xFF)
-            val = val >> 8
-        assert len(little_endian_bytes) <= self.type.size, (
-            f"Invalid address for size {self.type.size}: "
-            "0x{self.pointed_address:x}"
+        # TODO support big endian
+        return _pack_integral_type(
+            pointed_address, self.type.size, signed=False, big_endian=False
         )
-        padding = self.type.size - len(little_endian_bytes)
-        little_endian_bytes += [0] * padding
-        return bytes(little_endian_bytes)
 
 
 class StructValue(Value):
@@ -488,7 +509,7 @@ class StructValue(Value):
         else:
             raise TypeError(
                 f"Field type {field_type.name} is not "
-                "compatible with python type {type(val)}"
+                f"compatible with python type {type(val)}"
             )
 
         self.fields[name] = wrappedVal
