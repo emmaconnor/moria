@@ -206,6 +206,18 @@ class IntValue(Value):
         )
 
 
+class TypedIntValue(IntValue):
+    int_type: basetypes.BaseType
+
+    def __init__(
+        self,
+        value: Optional[int] = None,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ):
+        super().__init__(self.int_type, value, address_base, offset)
+
+
 class ArrayValue(Value):
     type: basetypes.ArrayType
 
@@ -511,8 +523,8 @@ class StructValue(Value):
             and field_type.referenced_type.size == 1
         ):
             string_buffer = BufferValue(
-                self.namespace.Char,
-                [IntValue(self.namespace.Char, c) for c in val.encode("utf-8")],
+                self.namespace.Char.type,
+                [self.namespace.Char(c) for c in val.encode("utf-8")],
             )
             wrappedVal = PointerValue(
                 basetypes.PointerType(field_type),
@@ -534,10 +546,7 @@ class StructValue(Value):
             padded_buf = buf + b"\0" * (field_type.count - len(buf))
             wrappedVal = ArrayValue(
                 field_type,
-                values=[
-                    IntValue(self.namespace.Char, c)
-                    for c in padded_buf
-                ],
+                values=[self.namespace.Char(c) for c in padded_buf],
                 address_base=self,
                 offset=offset,
             )
@@ -583,5 +592,11 @@ class TypedStructValue(StructValue):
         self,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
+        **kwargs: Value | str | int,
     ):
         super().__init__(self.type, address_base=address_base, offset=offset)
+        for field_name, value in kwargs.items():
+            if field_name in self.fields:
+                setattr(self, field_name, value)
+            else:
+                raise TypeError(f"Unexpected keyword argument: {field_name}")

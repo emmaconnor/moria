@@ -37,6 +37,8 @@ class BaseType(Type):
 
     @property
     def is_signed(self) -> bool:
+        if self._signed is not None:
+            return self._signed
         return "unsigned" not in self.name.split()
 
     @property

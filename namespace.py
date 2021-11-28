@@ -12,32 +12,32 @@ import re
 from arch import Arch
 
 import basetypes
-from values import TypedStructValue, Value
+from values import TypedStructValue, Value, TypedIntValue
 
 
 class Namespace:
     arch: Arch
     struct_types: MutableMapping[str, PyType[TypedStructValue]]
 
-    Char: basetypes.BaseType
-    UnsignedChar: basetypes.BaseType
-    Short: basetypes.BaseType
-    UnsignedShort: basetypes.BaseType
-    Int: basetypes.BaseType
-    UnsignedInt: basetypes.BaseType
-    Long: basetypes.BaseType
-    UnsignedLong: basetypes.BaseType
-    LongLong: basetypes.BaseType
-    UnsignedLongLong: basetypes.BaseType
+    Char: PyType[TypedIntValue]
+    UnsignedChar: PyType[TypedIntValue]
+    Short: PyType[TypedIntValue]
+    UnsignedShort: PyType[TypedIntValue]
+    Int: PyType[TypedIntValue]
+    UnsignedInt: PyType[TypedIntValue]
+    Long: PyType[TypedIntValue]
+    UnsignedLong: PyType[TypedIntValue]
+    LongLong: PyType[TypedIntValue]
+    UnsignedLongLong: PyType[TypedIntValue]
 
-    Int8: basetypes.BaseType
-    UInt8: basetypes.BaseType
-    Int16: basetypes.BaseType
-    UInt16: basetypes.BaseType
-    Int32: basetypes.BaseType
-    UInt32: basetypes.BaseType
-    Int64: basetypes.BaseType
-    UInt64: basetypes.BaseType
+    Int8: PyType[TypedIntValue]
+    UInt8: PyType[TypedIntValue]
+    Int16: PyType[TypedIntValue]
+    UInt16: PyType[TypedIntValue]
+    Int32: PyType[TypedIntValue]
+    UInt32: PyType[TypedIntValue]
+    Int64: PyType[TypedIntValue]
+    UInt64: PyType[TypedIntValue]
 
     def __init__(self, arch: Arch) -> None:
         self.arch = arch
@@ -45,46 +45,56 @@ class Namespace:
         self.struct_types = {}
         self._create_default_types()
 
+    def _create_typed_integer_class(
+        self, name: str, size: int, signed: bool
+    ) -> PyType[TypedIntValue]:
+        fixed_int_type = basetypes.BaseType(self, name, size, _signed=signed)
+
+        class typed_int_class(TypedIntValue):
+            int_type = fixed_int_type
+
+        return typed_int_class
+
     def _create_default_types(self) -> None:
-        self.Char = basetypes.BaseType(
-            self, "char", self.arch.char_size, _signed=True
+        self.Char = self._create_typed_integer_class(
+            "char", self.arch.char_size, True
         )
-        self.UnsignedChar = basetypes.BaseType(
-            self, "unsigned char", self.arch.char_size, _signed=False
+        self.UnsignedChar = self._create_typed_integer_class(
+            "unsigned char", self.arch.char_size, False
         )
-        self.Short = basetypes.BaseType(
-            self, "short", self.arch.short_size, _signed=True
+        self.Short = self._create_typed_integer_class(
+            "short", self.arch.short_size, True
         )
-        self.UnsignedShort = basetypes.BaseType(
-            self, "unsigned short", self.arch.short_size, _signed=False
+        self.UnsignedShort = self._create_typed_integer_class(
+            "unsigned short", self.arch.short_size, False
         )
-        self.Int = basetypes.BaseType(
-            self, "int", self.arch.int_size, _signed=True
+        self.Int = self._create_typed_integer_class(
+            "int", self.arch.int_size, True
         )
-        self.UnsignedInt = basetypes.BaseType(
-            self, "unsigned int", self.arch.int_size, _signed=False
+        self.UnsignedInt = self._create_typed_integer_class(
+            "unsigned int", self.arch.int_size, False
         )
-        self.Long = basetypes.BaseType(
-            self, "long", self.arch.long_size, _signed=True
+        self.Long = self._create_typed_integer_class(
+            "long", self.arch.long_size, True
         )
-        self.UnsignedLong = basetypes.BaseType(
-            self, "unsigned long", self.arch.long_size, _signed=False
+        self.UnsignedLong = self._create_typed_integer_class(
+            "unsigned long", self.arch.long_size, False
         )
-        self.LongLong = basetypes.BaseType(
-            self, "long_long", self.arch.long_long_size, _signed=True
+        self.LongLong = self._create_typed_integer_class(
+            "long_long", self.arch.long_long_size, True
         )
-        self.UnsignedLongLong = basetypes.BaseType(
-            self, "unsigned long long", self.arch.long_long_size, _signed=False
+        self.UnsignedLongLong = self._create_typed_integer_class(
+            "unsigned long long", self.arch.long_long_size, False
         )
 
-        self.Int8 = basetypes.BaseType(self, "int8_t", 1, _signed=True)
-        self.UInt8 = basetypes.BaseType(self, "uint8_t", 1, _signed=False)
-        self.Int16 = basetypes.BaseType(self, "int16_t", 2, _signed=True)
-        self.UInt16 = basetypes.BaseType(self, "uint16_t", 2, _signed=False)
-        self.Int32 = basetypes.BaseType(self, "int32_t", 4, _signed=True)
-        self.UInt32 = basetypes.BaseType(self, "uint32_t", 4, _signed=False)
-        self.Int64 = basetypes.BaseType(self, "int64_t", 8, _signed=True)
-        self.UInt64 = basetypes.BaseType(self, "uint64_t", 8, _signed=False)
+        self.Int8 = self._create_typed_integer_class("int8_t", 1, True)
+        self.UInt8 = self._create_typed_integer_class("uint8_t", 1, False)
+        self.Int16 = self._create_typed_integer_class("int16_t", 2, True)
+        self.UInt16 = self._create_typed_integer_class("uint16_t", 2, False)
+        self.Int32 = self._create_typed_integer_class("int32_t", 4, True)
+        self.UInt32 = self._create_typed_integer_class("uint32_t", 4, False)
+        self.Int64 = self._create_typed_integer_class("int64_t", 8, True)
+        self.UInt64 = self._create_typed_integer_class("uint64_t", 8, False)
 
     def pack_values(
         self, base_address: int, max_size: int, values: Iterable[Value]
