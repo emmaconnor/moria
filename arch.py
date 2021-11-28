@@ -12,7 +12,7 @@ class Arch:
     short_size: int
     int_size: int
     long_size: int
-    longlong_size: int
+    long_long_size: int
     pointer_size: int
 
     def __init__(self, endianness: Endianness, word_size: int):
@@ -21,7 +21,7 @@ class Arch:
 
         self.char_size = 1
         self.short_size = 2
-        self.longlong_size = 8
+        self.long_long_size = 8
         self.pointer_size = word_size
 
         if word_size == 4:

@@ -424,7 +424,6 @@ class PointerValue(Value):
                 "Cannot pack a pointer that references an object with unresolved "
                 "address!"
             )
-        # TODO support big endian
         return _pack_integral_type(
             pointed_address,
             self.type.size,
@@ -511,12 +510,9 @@ class StructValue(Value):
             and isinstance(field_type, basetypes.PointerType)
             and field_type.referenced_type.size == 1
         ):
-            char_type = basetypes.BaseType(
-                self.namespace, "char", 1
-            )  # TODO pre-gen standard types in namespace
             string_buffer = BufferValue(
-                char_type,
-                [IntValue(char_type, c) for c in val.encode("utf-8")],
+                self.namespace.Char,
+                [IntValue(self.namespace.Char, c) for c in val.encode("utf-8")],
             )
             wrappedVal = PointerValue(
                 basetypes.PointerType(field_type),
@@ -539,7 +535,7 @@ class StructValue(Value):
             wrappedVal = ArrayValue(
                 field_type,
                 values=[
-                    IntValue(basetypes.BaseType(self.namespace, "char", 1), c)
+                    IntValue(self.namespace.Char, c)
                     for c in padded_buf
                 ],
                 address_base=self,

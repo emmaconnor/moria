@@ -29,6 +29,7 @@ class BaseType(Type):
     namespace: ns.Namespace
     _name: str
     _size: Optional[int]
+    _signed: Optional[bool] = None
 
     @property
     def name(self) -> str:
