@@ -72,6 +72,10 @@ class Value(ABC):
     ) -> Value:
         raise TypeError(f"Type {t} cannot be assigned from {type(value)}")
 
+    @abstractmethod
+    def initialize_default(self) -> None:
+        raise NotImplementedError
+
     def move(
         self,
         address_base: Optional[Value],
@@ -178,6 +182,11 @@ class IntValue(Value):
 
         raise TypeError(f"Type {t} cannot be assigned from {type(value)}")
 
+    def initialize_default(self) -> None:
+        if self.is_initialized():
+            return
+        self.value = 0
+
     def iter_referenced_values(self) -> Iterable[Value]:
         if self.address_base is not None:
             yield self.address_base
@@ -207,6 +216,9 @@ class IntValue(Value):
             str(self.value) if self.value is not None else "<uninitialized>"
         )
         return f"<{self.type.name} {value_str}>"
+
+    def __str__(self) -> str:
+        return str(self.value) if self.value is not None else "<uninitialized>"
 
     def pack(self) -> bytes:
         assert (
@@ -271,6 +283,12 @@ class ArrayValue(Value):
                 for i, val in enumerate(values)
             ]
 
+    def initialize_default(self) -> None:
+        if self.is_initialized():
+            return
+        for val in self.values:
+            val.initialize_default()
+
     def iter_referenced_values(self) -> Iterable[Value]:
         if self.address_base is not None:
             yield self.address_base
@@ -298,7 +316,9 @@ class ArrayValue(Value):
 
         padding = t.count - len(value_list)
         for _ in range(padding):
-            values.append(member_value_class(t.member_type))
+            val = member_value_class(t.member_type)
+            val.initialize_default()
+            values.append(val)
 
         return ArrayValue(t, values, address_base, offset)
 
@@ -324,7 +344,16 @@ class ArrayValue(Value):
 
     def __repr__(self) -> str:
         if self.is_initialized():
-            return "{" + ", ".join(repr(val) for val in self.values) + "}"
+            if self.type.member_type.name == "char":
+                char_vals = []
+                for val in self.values:
+                    assert isinstance(val, IntValue) and val.type.size == 1
+                    if val.value == 0:
+                        break
+                    char_vals.append(val.value)
+                return f"(char[{self.type.count}]){bytes(char_vals)!r}"
+            else:
+                return "{" + ", ".join(str(val) for val in self.values) + "}"
         else:
             return f"{{<uninitialized>, ... * {self.type.count}}}"
 
@@ -364,6 +393,12 @@ class BufferValue(Value):
             yield self.address_base
         yield from self.values
 
+    def initialize_default(self) -> None:
+        if self.is_initialized():
+            return
+        for val in self.values:
+            val.initialize_default()
+
     @staticmethod
     def cast(
         t: basetypes.Type,
@@ -384,7 +419,9 @@ class BufferValue(Value):
         offset: Optional[int] = None,
     ) -> BufferValue:
         return BufferValue(
-            self.values, address_base=address_base, offset=offset
+            [val.copy() for val in self.values],
+            address_base=address_base,
+            offset=offset,
         )
 
     def is_initialized(self) -> bool:
@@ -419,7 +456,9 @@ class PointerValue(Value):
     ):
         super().__init__(pointer_type, address_base, offset)
         if referenced_value is not None and raw_value is not None:
-            raise ValueError("Cannot have both a referenced object and a raw value.")
+            raise ValueError(
+                "Cannot have both a referenced object and a raw value."
+            )
         self.referenced_value: Optional[Value] = referenced_value
         self.raw_value = raw_value
 
@@ -434,11 +473,12 @@ class PointerValue(Value):
             value = value.encode("utf-8")
 
         if isinstance(value, Iterable):
-            referenced_value_class = Value.get_class_for_type(t.referenced_type)
+            referenced_value_class = Value.get_class_for_type(
+                t.referenced_type
+            )
             buffer = BufferValue(
-                t.referenced_type,
                 [
-                    referenced_value_class.cast(t.referenced_type, v)
+                    referenced_value_class.cast(t.referenced_type, v).copy()
                     for v in value
                 ],
             )
@@ -456,6 +496,12 @@ class PointerValue(Value):
                 raw_value=value,
             )
         raise TypeError(f"Type {t} cannot be assigned from {type(value)}")
+
+    def initialize_default(self) -> None:
+        if self.is_initialized():
+            return
+        self.referenced_value = None
+        self.raw_value = 0
 
     def iter_referenced_values(self) -> Iterable[Value]:
         if self.address_base is not None:
@@ -501,6 +547,18 @@ class PointerValue(Value):
             else "None"
         )
         return f"<PointerValue to {pointed_type}>"
+
+    def __str__(self) -> str:
+        pointed_type = (
+            self.referenced_value.type.name
+            if self.referenced_value is not None
+            else "void"
+        )
+        if self.pointed_address is None:
+            addr = "NULL"
+        else:
+            addr = f"0x{self.pointed_address:x}"
+        return f"({pointed_type}*){addr}"
 
     def pack(self) -> bytes:
         assert (
@@ -571,6 +629,12 @@ class StructValue(Value):
             setattr(struct, name, field)
         return struct
 
+    def initialize_default(self) -> None:
+        if self.is_initialized():
+            return
+        for val in self.fields.values():
+            val.initialize_default()
+
     def is_initialized(self) -> bool:
         return all(val.is_initialized() for val in self.fields.values())
 
@@ -579,7 +643,8 @@ class StructValue(Value):
             f"{field.name}={self.fields[field.name]}"
             for field in self.type.fields
         )
-        return f"<struct {self.type.name}: {fields})>"
+        addr = f"0x{self.address:x}" if self.address is not None else "None"
+        return f"<struct {self.type.name} @{addr}: {fields})>"
 
     def __getattr__(self, name: str) -> Value:
         if name == "_initialized" or not self._initialized:
