@@ -8,6 +8,7 @@ struct user
 {
     int id;
     char name[MAX_USERNAME_LEN];
+    double rating;
     struct user *prev;
     struct user *next;
 };
