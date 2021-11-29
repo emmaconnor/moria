@@ -44,6 +44,10 @@ def _pack_integral_type(
 
 
 class Value(ABC):
+    CompatibleType = Union[
+        "Value", str, int, bytes, float, Iterable["CompatibleType"]
+    ]
+
     type: basetypes.Type
     address_base: Optional[Value]
     offset: Optional[int]
@@ -58,6 +62,23 @@ class Value(ABC):
         self.type = t
         self.address_base: Optional[Value] = address_base
         self.offset: Optional[int] = offset
+
+    @staticmethod
+    def cast(
+        t: basetypes.Type,
+        value: CompatibleType,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ) -> Value:
+        raise TypeError(f"Type {t} cannot be assigned from {type(value)}")
+
+    def move(
+        self,
+        address_base: Optional[Value],
+        offset: Optional[int],
+    ) -> None:
+        self.address_base = address_base
+        self.offset = offset
 
     @property
     def address(self) -> Optional[int]:
@@ -113,41 +134,6 @@ class Value(ABC):
         raise ValueError("unknown type")
 
 
-class VoidValue(Value):
-    def __init__(
-        self,
-        address_base: Optional[Value] = None,
-        offset: Optional[int] = None,
-    ):
-        super().__init__(
-            basetypes.BaseType(self.namespace, "void", None),
-            address_base,
-            offset,
-        )
-
-    def iter_referenced_values(self) -> Iterable[Value]:
-        if self.address_base is not None:
-            yield self.address_base
-
-    def copy(
-        self,
-        address_base: Optional[Value] = None,
-        offset: Optional[int] = None,
-    ) -> VoidValue:
-        return VoidValue(address_base=address_base, offset=offset)
-
-    def ref(self) -> PointerValue:
-        return PointerValue(
-            basetypes.PointerType(self.type), referenced_value=self
-        )
-
-    def pack(self) -> bytes:
-        raise NotImplementedError("Cannot serialize void types")
-
-    def is_initialized(self) -> bool:
-        return False
-
-
 class IntValue(Value):
     type: basetypes.BaseType
 
@@ -160,6 +146,37 @@ class IntValue(Value):
     ):
         super().__init__(int_type, address_base, offset)
         self.value: Optional[int] = value
+
+    @staticmethod
+    def cast(
+        t: basetypes.BaseType,
+        value: Value.CompatibleType,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ) -> IntValue:
+        if t.size is None:
+            raise ValueError("Cannot cast to integer type without a size")
+
+        int_val: Optional[int] = None
+        if isinstance(value, int):
+            int_val = value
+        elif isinstance(value, float):
+            int_val = int(value)
+        elif isinstance(value, str) and len(value) == 1:
+            int_val = ord(value)
+        elif isinstance(value, bytes) and len(value) == 1:
+            int_val = value[0]
+
+        if int_val is not None:
+            mask = sum(0xFF << (i * 8) for i in range(t.size))
+            return IntValue(
+                t,
+                value=int_val & mask,
+                address_base=address_base,
+                offset=offset,
+            )
+
+        raise TypeError(f"Type {t} cannot be assigned from {type(value)}")
 
     def iter_referenced_values(self) -> Iterable[Value]:
         if self.address_base is not None:
@@ -259,6 +276,32 @@ class ArrayValue(Value):
             yield self.address_base
         yield from self.values
 
+    @staticmethod
+    def cast(
+        t: basetypes.ArrayType,
+        value: Value.CompatibleType,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ) -> ArrayValue:
+        if not isinstance(value, Iterable):
+            raise TypeError(f"Type {t} cannot be assigned from {type(value)}")
+        value_list = list(value)
+        if len(value_list) > t.count:
+            raise TypeError(
+                f"Too many elements ({len(value_list)}) to fit in {t}"
+            )
+
+        values: List[Value] = []
+        member_value_class = Value.get_class_for_type(t.member_type)
+        for item in value_list:
+            values.append(member_value_class.cast(t.member_type, item))
+
+        padding = t.count - len(value_list)
+        for _ in range(padding):
+            values.append(member_value_class(t.member_type))
+
+        return ArrayValue(t, values, address_base, offset)
+
     def copy(
         self,
         address_base: Optional[Value] = None,
@@ -303,24 +346,32 @@ class ArrayValue(Value):
 class BufferValue(Value):
     def __init__(
         self,
-        elem_type: basetypes.Type,
-        values: Optional[List[Value]] = None,
+        values: List[Value],
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ):
-        super().__init__(elem_type, address_base, offset)
+        if len(values) == 0:
+            raise ValueError("Cannot instantiate empty buffer")
+        super().__init__(values[0].type, address_base, offset)
         self.values: List[Value] = []
-        if values is not None:
-            assert self.type.size is not None
-            self.values = [
-                val.copy(address_base=self, offset=i * self.type.size)
-                for i, val in enumerate(values)
-            ]
+        assert self.type.size is not None
+        self.values = values
+        for i, val in enumerate(self.values):
+            val.move(address_base=self, offset=i * self.type.size)
 
     def iter_referenced_values(self) -> Iterable[Value]:
         if self.address_base is not None:
             yield self.address_base
         yield from self.values
+
+    @staticmethod
+    def cast(
+        t: basetypes.Type,
+        value: Value.CompatibleType,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ) -> BufferValue:
+        raise NotImplementedError
 
     def ref(self) -> PointerValue:
         return PointerValue(
@@ -333,7 +384,7 @@ class BufferValue(Value):
         offset: Optional[int] = None,
     ) -> BufferValue:
         return BufferValue(
-            self.type, self.values, address_base=address_base, offset=offset
+            self.values, address_base=address_base, offset=offset
         )
 
     def is_initialized(self) -> bool:
@@ -356,6 +407,7 @@ class BufferValue(Value):
 
 class PointerValue(Value):
     type: basetypes.PointerType
+    raw_value: Optional[int]
 
     def __init__(
         self,
@@ -363,28 +415,52 @@ class PointerValue(Value):
         referenced_value: Optional[Value] = None,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
+        raw_value: int = None,
     ):
         super().__init__(pointer_type, address_base, offset)
+        if referenced_value is not None and raw_value is not None:
+            raise ValueError("Cannot have both a referenced object and a raw value.")
         self.referenced_value: Optional[Value] = referenced_value
+        self.raw_value = raw_value
 
     @staticmethod
-    def raw(address: int) -> PointerValue:
-        return VoidValue(address_base=None, offset=address).ref()
+    def cast(
+        t: basetypes.PointerType,
+        value: Value.CompatibleType,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ) -> PointerValue:
+        if isinstance(value, str):
+            value = value.encode("utf-8")
 
-    @staticmethod
-    def null() -> PointerValue:
-        return PointerValue.raw(0x0)
+        if isinstance(value, Iterable):
+            referenced_value_class = Value.get_class_for_type(t.referenced_type)
+            buffer = BufferValue(
+                t.referenced_type,
+                [
+                    referenced_value_class.cast(t.referenced_type, v)
+                    for v in value
+                ],
+            )
+            return PointerValue(
+                basetypes.PointerType(t),
+                referenced_value=buffer,
+                address_base=address_base,
+                offset=offset,
+            )
+        elif isinstance(value, int):
+            return PointerValue(
+                basetypes.PointerType(t),
+                address_base=address_base,
+                offset=offset,
+                raw_value=value,
+            )
+        raise TypeError(f"Type {t} cannot be assigned from {type(value)}")
 
     def iter_referenced_values(self) -> Iterable[Value]:
         if self.address_base is not None:
             yield self.address_base
-        # VoidValues have an address, but do not have a value themselves,
-        # so serializing the pointer does not require serializing the
-        # VoidValue itself. For this reason, do not traverse to the
-        # referenced value if it is a VoidValue.
-        if self.referenced_value is not None and not isinstance(
-            self.referenced_value, VoidValue
-        ):
+        if self.referenced_value is not None:
             yield self.referenced_value
 
     def ref(self) -> PointerValue:
@@ -402,10 +478,13 @@ class PointerValue(Value):
             referenced_value=self.referenced_value,
             address_base=address_base,
             offset=offset,
+            raw_value=self.raw_value,
         )
 
     @property
     def pointed_address(self) -> Optional[int]:
+        if self.raw_value is not None:
+            return self.raw_value
         if self.referenced_value is None:
             return None
         if self.referenced_value.address is None:
@@ -427,15 +506,11 @@ class PointerValue(Value):
         assert (
             self.type.size is not None
         ), "Cannot serialize pointer of unresolved size"
-        if self.referenced_value is None:
-            pointed_address = 0
-        else:
-            pointed_address = self.pointed_address
+
+        pointed_address = self.pointed_address
         if pointed_address is None:
-            raise ValueError(
-                "Cannot pack a pointer that references an object with unresolved "
-                "address!"
-            )
+            pointed_address = 0
+
         return _pack_integral_type(
             pointed_address,
             self.type.size,
@@ -467,6 +542,17 @@ class StructValue(Value):
         if self.address_base is not None:
             yield self.address_base
         yield from self.fields.values()
+
+    @staticmethod
+    def cast(
+        t: basetypes.StructType,
+        value: Value.CompatibleType,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ) -> StructValue:
+        if isinstance(value, TypedStructValue) and value.type == t:
+            return value
+        raise TypeError(f"Type {t} cannot be assigned from {type(value)}")
 
     def ref(self) -> PointerValue:
         return PointerValue(
@@ -505,7 +591,7 @@ class StructValue(Value):
             return attr
         raise AttributeError(f"Struct {self.type.name} has no field {name}")
 
-    def __setattr__(self, name: str, val: Union[Value, int, str]) -> None:
+    def __setattr__(self, name: str, val: Value.CompatibleType) -> None:
         if name == "_initialized" or not self._initialized:
             return super().__setattr__(name, val)
 
@@ -513,51 +599,14 @@ class StructValue(Value):
             return super().__setattr__(name, val)
         field_type = self.fields[name].type
         offset = self.fields[name].offset
-        if isinstance(val, int) and isinstance(field_type, basetypes.BaseType):
-            wrappedVal = IntValue(
-                field_type, value=val, address_base=self, offset=offset
-            )
-        elif (
-            isinstance(val, str)
-            and isinstance(field_type, basetypes.PointerType)
-            and field_type.referenced_type.size == 1
-        ):
-            string_buffer = BufferValue(
-                self.namespace.Char.type,
-                [self.namespace.Char(c) for c in val.encode("utf-8")],
-            )
-            wrappedVal = PointerValue(
-                basetypes.PointerType(field_type),
-                referenced_value=string_buffer,
-                address_base=self,
-                offset=offset,
-            )
-        elif (
-            isinstance(val, str)
-            and isinstance(field_type, basetypes.ArrayType)
-            and field_type.member_type.size == 1
-        ):
-            buf = val.encode("utf-8")
-            if len(buf) > field_type.count:
-                raise ValueError(
-                    f"String is too long ({len(buf)} bytes) "
-                    f"to fit in char[{field_type.count}]"
-                )
-            padded_buf = buf + b"\0" * (field_type.count - len(buf))
-            wrappedVal = ArrayValue(
-                field_type,
-                values=[self.namespace.Char(c) for c in padded_buf],
-                address_base=self,
-                offset=offset,
-            )
-        elif isinstance(val, Value.get_class_for_type(field_type)):
+
+        value_class = Value.get_class_for_type(field_type)
+        if isinstance(val, value_class):
             wrappedVal = val.copy(address_base=self, offset=offset)
         else:
-            raise TypeError(
-                f"Field type {field_type.name} is not "
-                f"compatible with python type {type(val)}"
+            wrappedVal = value_class.cast(
+                field_type, val, address_base=self, offset=offset
             )
-
         self.fields[name] = wrappedVal
 
     def pack(self) -> bytes:
@@ -592,7 +641,7 @@ class TypedStructValue(StructValue):
         self,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
-        **kwargs: Value | str | int,
+        **kwargs: Value.CompatibleType,
     ):
         super().__init__(self.type, address_base=address_base, offset=offset)
         for field_name, value in kwargs.items():

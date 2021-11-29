@@ -1,6 +1,7 @@
 import sys
 from parsers.dwarf import DwarfParser
 from util import hexdump
+from values import BufferValue
 
 EXAMPLE_BIN_PATH = "examples/userlist.bin"
 
@@ -16,10 +17,12 @@ def main():
     user1 = namespace.user(
         id=1,
         name="alice",
+        next=0xDEADBEEF,
+        prev=0xDEADBEEF,
     )
     user2 = namespace.user(
         id=2,
-        name="bob",
+        name=list(b"bob"),
         next=user1.ref(),
         prev=user1.ref(),
     )
@@ -27,10 +30,12 @@ def main():
     user1.next = user2.ref()
     user1.prev = user2.ref()
 
-    i = namespace.UInt32(0xDEADBEEF)
+    user_ptrs = BufferValue([user1.ref(), user2.ref()])
+
+    i = namespace.UInt32(0xCAFEBABE)
 
     start_address = 0x560A61DF4000
-    packed = namespace.pack_values(start_address, 0x1000, [user1, user2, i])
+    packed = namespace.pack_values(start_address, 0x1000, [i, user_ptrs])
     hexdump(packed, start_address=start_address)
 
     return 0
