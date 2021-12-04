@@ -5,7 +5,6 @@ from typing import Any, Optional
 
 from util import SortedList
 import namespace as ns
-from values import StructValue
 
 
 class Type(ABC):
@@ -13,7 +12,7 @@ class Type(ABC):
 
     def __init__(self, namespace: ns.Namespace):
         self.namespace = namespace
-    
+
     def get_pointer_type(self) -> PointerType:
         return PointerType(referenced_type=self)
 
@@ -62,12 +61,11 @@ class BaseType(Type):
 
     def __eq__(self, other: Type) -> bool:
         return (
-            isinstance(other, BaseType) and
-            other.namespace is self.namespace and
-            other._size == self._size and
-            other._signed == self._signed
+            isinstance(other, BaseType)
+            and other.namespace is self.namespace
+            and other._size == self._size
+            and other._signed == self._signed
         )
-
 
 
 @dataclass
@@ -88,14 +86,16 @@ class ArrayType(Type):
         return None
 
     def __hash__(self) -> int:
-        return hash((self.__class__, self.namespace, self.member_type, self.count))
+        return hash(
+            (self.__class__, self.namespace, self.member_type, self.count)
+        )
 
     def __eq__(self, other: Type) -> bool:
         return (
-            isinstance(other, ArrayType) and
-            other.namespace is self.namespace and
-            other.member_type == self.member_type and
-            other.count == self.count
+            isinstance(other, ArrayType)
+            and other.namespace is self.namespace
+            and other.member_type == self.member_type
+            and other.count == self.count
         )
 
 
@@ -124,9 +124,9 @@ class PointerType(Type):
 
     def __eq__(self, other: Type) -> bool:
         return (
-            isinstance(other, PointerType) and
-            other.namespace is self.namespace and
-            other.referenced_type == self.referenced_type
+            isinstance(other, PointerType)
+            and other.namespace is self.namespace
+            and other.referenced_type == self.referenced_type
         )
 
 
@@ -152,17 +152,25 @@ class StructField:
         return self.field_type.size
 
     def __hash__(self) -> int:
-        return hash((self.__class__, self.namespace, self.offset, self.field_type, self.name))
+        return hash(
+            (
+                self.__class__,
+                self.namespace,
+                self.offset,
+                self.field_type,
+                self.name,
+            )
+        )
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, StructField):
             return False
         return (
-            isinstance(other, StructType) and
-            other.namespace is self.namespace and
-            self.offset == other.offset and
-            self.field_type == other.field_type and
-            self.name == other.name
+            isinstance(other, StructType)
+            and other.namespace is self.namespace
+            and self.offset == other.offset
+            and self.field_type == other.field_type
+            and self.name == other.name
         )
 
 
@@ -206,7 +214,7 @@ class StructType(Type):
 
     def __eq__(self, other: Type) -> bool:
         return (
-            isinstance(other, StructType) and
-            other.namespace is self.namespace and
-            self.name == other.name
+            isinstance(other, StructType)
+            and other.namespace is self.namespace
+            and self.name == other.name
         )

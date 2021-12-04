@@ -42,7 +42,11 @@ def main():
     packed = namespace.pack_values(start_address, 0x1000, users)
     hexdump(packed, start_address=start_address)
 
-    for user in users:
+    unpacked_users = namespace.array(namespace.user, 3).unpack_from_buffer(
+        packed, offset=start_address
+    )
+
+    for user in unpacked_users.values:
         print(user)
 
     return 0

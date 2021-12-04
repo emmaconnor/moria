@@ -4,7 +4,6 @@ from typing import (
     MutableMapping,
     List,
     Set,
-    Type,
 )
 
 # we already have a "Type" class, so we need to avoid a name conflict here
@@ -14,6 +13,7 @@ from arch import Arch
 
 import basetypes
 from values import ArrayValue, PointerValue, Value, StructValue, IntValue
+
 
 class Namespace:
     arch: Arch
@@ -97,6 +97,12 @@ class Namespace:
         self.Int64 = self._create_typed_integer_class("int64_t", 8, True)
         self.UInt64 = self._create_typed_integer_class("uint64_t", 8, False)
 
+    def array(self, t: PyType[Value], count: int) -> PyType[ArrayValue]:
+        array_type = basetypes.ArrayType(self, t.type, count)
+        array_class = self.get_class_for_type(array_type)
+        assert issubclass(array_class, ArrayValue)
+        return array_class
+
     def pack_values(
         self, base_address: int, max_size: int, values: Iterable[Value]
     ) -> bytes:
@@ -143,8 +149,10 @@ class Namespace:
     def create_types(self) -> None:
         for struct_type in self.structs.values():
             struct_name = self._format_struct_name(struct_type.name)
+
             class struct_class(StructValue):
                 type = struct_type
+
             if hasattr(self, struct_name):
                 raise ValueError(
                     f"Struct name {struct_name} conflicts "
@@ -152,12 +160,14 @@ class Namespace:
                 )
 
             self.struct_types[struct_name] = struct_class
-    
-    def get_pointer_class_for_type(self, t: basetypes.Type) -> PyType[PointerValue]:
+
+    def get_pointer_class_for_type(
+        self, t: basetypes.Type
+    ) -> PyType[PointerValue]:
         pointer_class = self.get_class_for_type(t.get_pointer_type())
         assert issubclass(pointer_class, PointerValue)
         return pointer_class
-    
+
     def _get_superclass_for_type(self, t: basetypes.Type) -> PyType[Value]:
         if isinstance(t, basetypes.BaseType):
             return IntValue
@@ -174,8 +184,10 @@ class Namespace:
             return self._type_classes[t]
         else:
             superclass = self._get_superclass_for_type(t)
+
             class type_class(superclass):
                 type = t
+
             self._type_classes[t] = type_class
             return type_class
 

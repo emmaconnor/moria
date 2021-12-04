@@ -10,8 +10,6 @@ from typing import (
     Union,
 )
 
-# we already have a "Type" class, so we need to avoid a name conflict here
-from typing import Type as PyType
 from abc import ABC, abstractmethod
 from arch import Endianness
 
@@ -43,6 +41,22 @@ def _pack_integral_type(
     if endianness == Endianness.BIG:
         return bytes(little_endian_bytes[::-1])
     return bytes(little_endian_bytes)
+
+
+def _unpack_integral_type(
+    buffer: bytes, size: int, signed: bool, endianness: Endianness
+) -> int:
+    if endianness == endianness.BIG:
+        buffer = buffer[::-1]
+    num = 0
+    assert len(buffer) == size
+    for i in range(size):
+        num |= buffer[i] << (8 * i)
+    sign_bit = 0x80 << (8 * (size - 1))
+    if signed and (num & sign_bit):
+        mask = sum(0xFF << (i * 8) for i in range(size))
+        return -((~num + 1) & mask)
+    return num
 
 
 class AddressableStream:
@@ -84,13 +98,24 @@ class Value(ABC):
         self.offset: Optional[int] = offset
 
     @classmethod
+    def unpack_from_buffer(
+        cls,
+        buffer: bytes,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ):
+        raise NotImplementedError()
+
+    @classmethod
     def cast(
         cls,
         value: CompatibleType,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ) -> Value:
-        raise TypeError(f"Type {cls.type} cannot be assigned from {type(value)}")
+        raise TypeError(
+            f"Type {cls.type} cannot be assigned from {type(value)}"
+        )
 
     @abstractmethod
     def initialize_default(self) -> None:
@@ -159,6 +184,27 @@ class IntValue(Value):
         self.value: Optional[int] = value
 
     @classmethod
+    def unpack_from_buffer(
+        cls,
+        buffer: bytes,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ):
+        assert cls.type.size is not None
+        if len(buffer) != cls.type.size:
+            raise ValueError(
+                f"Invalid length to unpack type {cls.type}: "
+                f"need {cls.type.size} bytes, got {len(buffer)}"
+            )
+        val = _unpack_integral_type(
+            buffer,
+            cls.type.size,
+            cls.type.is_signed,
+            cls.type.namespace.arch.endianness,
+        )
+        return cls(value=val, address_base=address_base, offset=offset)
+
+    @classmethod
     def cast(
         cls,
         value: Value.CompatibleType,
@@ -186,7 +232,9 @@ class IntValue(Value):
                 offset=offset,
             )
 
-        raise TypeError(f"Type {cls.type} cannot be assigned from {type(value)}")
+        raise TypeError(
+            f"Type {cls.type} cannot be assigned from {type(value)}"
+        )
 
     def initialize_default(self) -> None:
         if self.is_initialized():
@@ -269,6 +317,32 @@ class ArrayValue(Value):
                 for i, val in enumerate(values)
             ]
 
+    @classmethod
+    def unpack_from_buffer(
+        cls,
+        buffer: bytes,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ):
+        assert cls.type.member_type.size is not None
+        count = cls.type.count
+        item_size = cls.type.member_type.size
+        assert len(buffer) == count * item_size
+
+        member_class = cls.type.namespace.get_class_for_type(
+            cls.type.member_type
+        )
+        vals = []
+        item_offset = 0
+        for i in range(count):
+            vals.append(
+                member_class.unpack_from_buffer(
+                    buffer[item_offset : item_offset + item_size],
+                )
+            )
+            item_offset += item_size
+        return cls(vals, address_base=address_base, offset=offset)
+
     def initialize_default(self) -> None:
         if self.is_initialized():
             return
@@ -288,7 +362,9 @@ class ArrayValue(Value):
         offset: Optional[int] = None,
     ) -> ArrayValue:
         if not isinstance(value, Iterable):
-            raise TypeError(f"Type {cls.type} cannot be assigned from {type(value)}")
+            raise TypeError(
+                f"Type {cls.type} cannot be assigned from {type(value)}"
+            )
         value_list = list(value)
         if len(value_list) > cls.type.count:
             raise TypeError(
@@ -296,7 +372,9 @@ class ArrayValue(Value):
             )
 
         values: List[Value] = []
-        member_value_class = cls.type.namespace.get_class_for_type(cls.type.member_type)
+        member_value_class = cls.type.namespace.get_class_for_type(
+            cls.type.member_type
+        )
         for item in value_list:
             values.append(member_value_class.cast(item))
 
@@ -368,6 +446,26 @@ class BufferValue(Value):
         for i, val in enumerate(self.values):
             val.move(address_base=self, offset=i * self.type.size)
 
+    @classmethod
+    def unpack_from_buffer(
+        cls,
+        buffer: bytes,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ):
+        raise NotImplementedError()
+
+    @classmethod
+    def cast(
+        cls,
+        value: Value.CompatibleType,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ) -> Value:
+        raise TypeError(
+            f"Type {cls.type} cannot be assigned from {type(value)}"
+        )
+
     def iter_referenced_values(self) -> Iterable[Value]:
         if self.address_base is not None:
             yield self.address_base
@@ -378,15 +476,6 @@ class BufferValue(Value):
             return
         for val in self.values:
             val.initialize_default()
-
-    @staticmethod
-    def cast(
-        t: basetypes.Type,
-        value: Value.CompatibleType,
-        address_base: Optional[Value] = None,
-        offset: Optional[int] = None,
-    ) -> BufferValue:
-        raise NotImplementedError
 
     def copy(
         self,
@@ -437,6 +526,21 @@ class PointerValue(Value):
         self.raw_value = raw_value
 
     @classmethod
+    def unpack_from_buffer(
+        cls,
+        buffer: bytes,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ):
+        val = _unpack_integral_type(
+            buffer,
+            cls.type.namespace.arch.pointer_size,
+            False,
+            cls.type.namespace.arch.endianness,
+        )
+        return cls(address_base=address_base, offset=offset, raw_value=val)
+
+    @classmethod
     def cast(
         cls,
         value: Value.CompatibleType,
@@ -451,10 +555,7 @@ class PointerValue(Value):
                 cls.type.referenced_type
             )
             buffer = BufferValue(
-                [
-                    referenced_value_class.cast(v).copy()
-                    for v in value
-                ],
+                [referenced_value_class.cast(v).copy() for v in value],
             )
             return cls(
                 referenced_value=buffer,
@@ -467,7 +568,9 @@ class PointerValue(Value):
                 offset=offset,
                 raw_value=value,
             )
-        raise TypeError(f"Type {cls.type} cannot be assigned from {type(value)}")
+        raise TypeError(
+            f"Type {cls.type} cannot be assigned from {type(value)}"
+        )
 
     def initialize_default(self) -> None:
         if self.is_initialized():
@@ -480,7 +583,6 @@ class PointerValue(Value):
             yield self.address_base
         if self.referenced_value is not None:
             yield self.referenced_value
-
 
     def copy(
         self,
@@ -553,23 +655,40 @@ class StructValue(Value):
         self,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
-        **kwargs: Value.CompatibleType
+        **kwargs: Value.CompatibleType,
     ):
         self._initialized: bool = False
         super().__init__(address_base, offset)
         self.fields = {
-            field.name: self.type.namespace.get_class_for_type(field.field_type)(
-                address_base=self, offset=field.offset
-            )
+            field.name: self.type.namespace.get_class_for_type(
+                field.field_type
+            )(address_base=self, offset=field.offset)
             for field in self.type.fields
         }
         self.field_types = {
             field.name: field.field_type for field in self.type.fields
         }
-        for field_name, value in kwargs.items():
-            field_type = self.field_types[field_name]
-            self.fields[field_name] = field_type.namespace.get_class_for_type(field_type).cast(value)
         self._initialized = True
+        for field_name, value in kwargs.items():
+            setattr(self, field_name, value)
+
+    @classmethod
+    def unpack_from_buffer(
+        cls,
+        buffer: bytes,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ):
+        assert len(buffer) == cls.type.size
+        values = {}
+        for field in cls.type.fields:
+            field_class = field.field_type.namespace.get_class_for_type(
+                field.field_type
+            )
+            assert field.size is not None
+            buffer_part = buffer[field.offset : field.offset + field.size]
+            values[field.name] = field_class.unpack_from_buffer(buffer_part)
+        return cls(address_base=address_base, offset=offset, **values)
 
     def iter_referenced_values(self) -> Iterable[Value]:
         if self.address_base is not None:
@@ -585,16 +704,16 @@ class StructValue(Value):
     ) -> StructValue:
         if isinstance(value, StructValue) and value.type == cls.type:
             return value
-        raise TypeError(f"Type {cls.type} cannot be assigned from {type(value)}")
+        raise TypeError(
+            f"Type {cls.type} cannot be assigned from {type(value)}"
+        )
 
     def copy(
         self,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ) -> StructValue:
-        struct = self.__class__(
-            address_base=address_base, offset=offset
-        )
+        struct = self.__class__(address_base=address_base, offset=offset)
         for name, field in self.fields.items():
             setattr(struct, name, field)
         return struct
