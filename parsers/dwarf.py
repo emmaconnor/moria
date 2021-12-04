@@ -5,13 +5,13 @@ from elftools.dwarf.die import DIE
 from arch import Arch, Endianness
 
 from basetypes import (
-    BaseType,
+    IntType,
     PointerType,
     ArrayType,
     StructField,
     Type,
 )
-from namespace import Namespace
+import namespace
 
 
 class DwarfParser:
@@ -36,13 +36,13 @@ class DwarfParser:
             return
 
         self.dwarf_info = self.elf_file.get_dwarf_info()
-        self.namespace = Namespace(Arch(endianness, word_size))
+        self.namespace = namespace.Namespace(Arch(endianness, word_size))
 
-    def parse(self) -> Namespace:
+    def create_namespace(self) -> namespace.Namespace:
         for compilation_unit in self.dwarf_info.iter_CUs():
             top_DIE = compilation_unit.get_top_DIE()
             self.recurse_die(top_DIE)
-        self.namespace.create_types()
+        self.namespace.initialize_struct_classes()
         return self.namespace
 
     def recurse_die(self, die: DIE) -> None:
@@ -76,7 +76,7 @@ class DwarfParser:
         ):
             type_size = die.attributes.get("DW_AT_byte_size").value
             return PointerType(
-                BaseType(self.namespace, "void", None), type_size
+                IntType(self.namespace, "void", None), type_size
             )
 
         type_die = die.get_DIE_from_attribute("DW_AT_type")
@@ -101,7 +101,7 @@ class DwarfParser:
                 "utf-8"
             )
             type_size = type_die.attributes.get("DW_AT_byte_size").value
-            return BaseType(self.namespace, type_name, type_size)
+            return IntType(self.namespace, type_name, type_size)
         elif type_die.tag == "DW_TAG_typedef":
             if "DW_AT_type" in type_die.attributes:
                 return self.resolve_type(type_die)
@@ -109,7 +109,7 @@ class DwarfParser:
                 "utf-8"
             )
             type_size = type_die.attributes.get("DW_AT_byte_size")
-            return BaseType(
+            return IntType(
                 self.namespace,
                 type_name,
                 type_size.value if type_size is not None else None,

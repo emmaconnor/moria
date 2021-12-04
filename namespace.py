@@ -51,8 +51,9 @@ class Namespace:
     def _create_typed_integer_class(
         self, name: str, size: int, signed: bool
     ) -> PyType[IntValue]:
-        fixed_int_type = basetypes.BaseType(self, name, size, _signed=signed)
-        int_class = self.get_class_for_type(fixed_int_type)
+        int_class = self.get_class_for_type(
+            basetypes.IntType(self, name, size, _signed=signed)
+        )
         assert issubclass(int_class, IntValue)
         return int_class
 
@@ -146,30 +147,20 @@ class Namespace:
             return self.struct_types[name]
         raise AttributeError
 
-    def create_types(self) -> None:
+    def initialize_struct_classes(self) -> None:
         for struct_type in self.structs.values():
             struct_name = self._format_struct_name(struct_type.name)
-
-            class struct_class(StructValue):
-                type = struct_type
-
+            struct_class = self.get_class_for_type(struct_type)
+            assert issubclass(struct_class, StructValue)
             if hasattr(self, struct_name):
                 raise ValueError(
                     f"Struct name {struct_name} conflicts "
                     "with existing namespace field"
                 )
-
             self.struct_types[struct_name] = struct_class
 
-    def get_pointer_class_for_type(
-        self, t: basetypes.Type
-    ) -> PyType[PointerValue]:
-        pointer_class = self.get_class_for_type(t.get_pointer_type())
-        assert issubclass(pointer_class, PointerValue)
-        return pointer_class
-
     def _get_superclass_for_type(self, t: basetypes.Type) -> PyType[Value]:
-        if isinstance(t, basetypes.BaseType):
+        if isinstance(t, basetypes.IntType):
             return IntValue
         elif isinstance(t, basetypes.PointerType):
             return PointerValue

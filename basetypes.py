@@ -2,9 +2,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Optional
+from typing import Type as PyType
 
 from util import SortedList
 import namespace as ns
+import values
 
 
 class Type(ABC):
@@ -15,6 +17,18 @@ class Type(ABC):
 
     def get_pointer_type(self) -> PointerType:
         return PointerType(referenced_type=self)
+
+    @property
+    def value_class(self) -> PyType[values.Value]:
+        return self.namespace.get_class_for_type(self)
+
+    @property
+    def pointer_class(self) -> PyType[values.PointerValue]:
+        pointer_class = self.namespace.get_class_for_type(
+            self.get_pointer_type()
+        )
+        assert issubclass(pointer_class, values.PointerValue)
+        return pointer_class
 
     @property
     @abstractmethod
@@ -36,7 +50,7 @@ class Type(ABC):
 
 
 @dataclass
-class BaseType(Type):
+class IntType(Type):
     namespace: ns.Namespace
     _name: str
     _size: Optional[int]
@@ -61,11 +75,18 @@ class BaseType(Type):
 
     def __eq__(self, other: Type) -> bool:
         return (
-            isinstance(other, BaseType)
+            isinstance(other, IntType)
             and other.namespace is self.namespace
             and other._size == self._size
             and other._signed == self._signed
         )
+
+    def __repr__(self) -> str:
+        un = "un" if not self.is_signed else ""
+        return f"<IntType {self.size} bytes, {un}signed>"
+
+    def __str__(self) -> str:
+        return self.name
 
 
 @dataclass
@@ -98,6 +119,12 @@ class ArrayType(Type):
             and other.count == self.count
         )
 
+    def __repr__(self) -> str:
+        return f"<ArrayType of {self.count} {self.member_type}>"
+
+    def __str__(self) -> str:
+        return f"{self.member_type}[{self.count}]"
+
 
 class PointerType(Type):
     referenced_type: Type
@@ -128,6 +155,12 @@ class PointerType(Type):
             and other.namespace is self.namespace
             and other.referenced_type == self.referenced_type
         )
+
+    def __repr__(self) -> str:
+        return f"<PointerType to {self.referenced_type}>"
+
+    def __str__(self) -> str:
+        return f"{self.referenced_type}*"
 
 
 @dataclass
@@ -195,6 +228,10 @@ class StructType(Type):
     def __repr__(self) -> str:
         fields = ", ".join(str(field) for field in self.fields)
         return f"<StructType {self.name}: {fields}>"
+
+    def __str__(self) -> str:
+        fields = ", ".join(str(field) for field in self.fields)
+        return f"{self.name} {{{fields}}}"
 
     @property
     def name(self) -> str:

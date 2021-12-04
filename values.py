@@ -1,6 +1,5 @@
 from __future__ import annotations
 from typing import (
-    BinaryIO,
     ClassVar,
     Iterable,
     Mapping,
@@ -59,30 +58,13 @@ def _unpack_integral_type(
     return num
 
 
-class AddressableStream:
-    stream: BinaryIO
-    address: int
-
-    def __init__(self, stream: BinaryIO, address: int = 0) -> None:
-        self.stream = stream
-        self.address = address
-
-    def read_exactly(self, n: int) -> bytes:
-        result = b""
-        while len(result) < n:
-            buffer = self.stream.read(n - len(result))
-            if len(buffer) == 0:
-                raise IOError("Unexpected end of stream")
-            result += buffer
-        return result
-
-
 class Value(ABC):
+    # Python types that can potentially be converted to a Value
     CompatibleType = Union[
         "Value", str, int, bytes, float, Iterable["CompatibleType"]
     ]
 
-    # must be specified in instantiated subclasses
+    # Class variable that will be assigned in subtypes
     type: ClassVar[basetypes.Type]
 
     address_base: Optional[Value]
@@ -159,8 +141,7 @@ class Value(ABC):
         raise NotImplementedError
 
     def ref(self) -> PointerValue:
-        pointer_type = self.namespace.get_pointer_class_for_type(self.type)
-        return pointer_type(referenced_value=self)
+        return self.type.pointer_class(referenced_value=self)
 
     @abstractmethod
     def pack(self) -> bytes:
@@ -172,7 +153,7 @@ class Value(ABC):
 
 
 class IntValue(Value):
-    type: basetypes.BaseType
+    type: basetypes.IntType
 
     def __init__(
         self,
@@ -294,11 +275,10 @@ class ArrayValue(Value):
     ):
         super().__init__(address_base, offset)
 
-        value_class = self.namespace.get_class_for_type(self.type.member_type)
         assert self.type.member_type.size is not None
         if values is None:
             self.values: List[Value] = [
-                value_class(
+                self.type.member_type.value_class(
                     address_base=self,
                     offset=i * self.type.member_type.size,
                 )
@@ -329,9 +309,7 @@ class ArrayValue(Value):
         item_size = cls.type.member_type.size
         assert len(buffer) == count * item_size
 
-        member_class = cls.type.namespace.get_class_for_type(
-            cls.type.member_type
-        )
+        member_class = cls.type.member_type.value_class
         vals = []
         item_offset = 0
         for i in range(count):
@@ -372,15 +350,13 @@ class ArrayValue(Value):
             )
 
         values: List[Value] = []
-        member_value_class = cls.type.namespace.get_class_for_type(
-            cls.type.member_type
-        )
+        member_class = cls.type.member_type.value_class
         for item in value_list:
-            values.append(member_value_class.cast(item))
+            values.append(member_class.cast(item))
 
         padding = cls.type.count - len(value_list)
         for _ in range(padding):
-            val = member_value_class()
+            val = member_class()
             val.initialize_default()
             values.append(val)
 
@@ -551,11 +527,11 @@ class PointerValue(Value):
             value = value.encode("utf-8")
 
         if isinstance(value, Iterable):
-            referenced_value_class = cls.type.namespace.get_class_for_type(
-                cls.type.referenced_type
-            )
             buffer = BufferValue(
-                [referenced_value_class.cast(v).copy() for v in value],
+                [
+                    cls.type.referenced_type.value_class.cast(v).copy()
+                    for v in value
+                ],
             )
             return cls(
                 referenced_value=buffer,
@@ -660,9 +636,9 @@ class StructValue(Value):
         self._initialized: bool = False
         super().__init__(address_base, offset)
         self.fields = {
-            field.name: self.type.namespace.get_class_for_type(
-                field.field_type
-            )(address_base=self, offset=field.offset)
+            field.name: field.field_type.value_class(
+                address_base=self, offset=field.offset
+            )
             for field in self.type.fields
         }
         self.field_types = {
@@ -682,12 +658,11 @@ class StructValue(Value):
         assert len(buffer) == cls.type.size
         values = {}
         for field in cls.type.fields:
-            field_class = field.field_type.namespace.get_class_for_type(
-                field.field_type
-            )
             assert field.size is not None
             buffer_part = buffer[field.offset : field.offset + field.size]
-            values[field.name] = field_class.unpack_from_buffer(buffer_part)
+            values[
+                field.name
+            ] = field.field_type.value_class.unpack_from_buffer(buffer_part)
         return cls(address_base=address_base, offset=offset, **values)
 
     def iter_referenced_values(self) -> Iterable[Value]:
@@ -754,11 +729,10 @@ class StructValue(Value):
         field_type = self.fields[name].type
         offset = self.fields[name].offset
 
-        value_class = self.type.namespace.get_class_for_type(field_type)
-        if isinstance(val, value_class):
+        if isinstance(val, field_type.value_class):
             wrappedVal = val.copy(address_base=self, offset=offset)
         else:
-            wrappedVal = value_class.cast(
+            wrappedVal = field_type.value_class.cast(
                 val, address_base=self, offset=offset
             )
         self.fields[name] = wrappedVal

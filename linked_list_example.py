@@ -11,19 +11,19 @@ EXAMPLE_BIN_PATH = "examples/userlist.bin"
 def main():
     try:
         with open(EXAMPLE_BIN_PATH, "rb") as binary:
-            namespace = DwarfParser(binary).parse()
+            ns = DwarfParser(binary).create_namespace()
     except FileNotFoundError:
         print(f"Binary {EXAMPLE_BIN_PATH} not found. Try building it first?")
         return 1
 
     users: List[StructValue] = [
-        namespace.user(
+        ns.user(
             name="alice",
         ),
-        namespace.user(
+        ns.user(
             name="bob",
         ),
-        namespace.user(
+        ns.user(
             name="charlie",
         ),
     ]
@@ -39,10 +39,10 @@ def main():
         user.next = next_user.ref()
 
     start_address = 0x560A61DF4000
-    packed = namespace.pack_values(start_address, 0x1000, users)
+    packed = ns.pack_values(start_address, 0x1000, users)
     hexdump(packed, start_address=start_address)
 
-    unpacked_users = namespace.array(namespace.user, 3).unpack_from_buffer(
+    unpacked_users = ns.array(ns.user, 3).unpack_from_buffer(
         packed, offset=start_address
     )
 
