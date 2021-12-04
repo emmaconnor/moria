@@ -4,6 +4,7 @@ from typing import (
     MutableMapping,
     List,
     Set,
+    Type,
 )
 
 # we already have a "Type" class, so we need to avoid a name conflict here
@@ -12,48 +13,48 @@ import re
 from arch import Arch
 
 import basetypes
-from values import TypedStructValue, Value, TypedIntValue
-
+from values import ArrayValue, PointerValue, Value, StructValue, IntValue
 
 class Namespace:
     arch: Arch
-    struct_types: MutableMapping[str, PyType[TypedStructValue]]
+    struct_types: MutableMapping[str, PyType[StructValue]]
 
-    Char: PyType[TypedIntValue]
-    UnsignedChar: PyType[TypedIntValue]
-    Short: PyType[TypedIntValue]
-    UnsignedShort: PyType[TypedIntValue]
-    Int: PyType[TypedIntValue]
-    UnsignedInt: PyType[TypedIntValue]
-    Long: PyType[TypedIntValue]
-    UnsignedLong: PyType[TypedIntValue]
-    LongLong: PyType[TypedIntValue]
-    UnsignedLongLong: PyType[TypedIntValue]
+    Char: PyType[IntValue]
+    UnsignedChar: PyType[IntValue]
+    Short: PyType[IntValue]
+    UnsignedShort: PyType[IntValue]
+    Int: PyType[IntValue]
+    UnsignedInt: PyType[IntValue]
+    Long: PyType[IntValue]
+    UnsignedLong: PyType[IntValue]
+    LongLong: PyType[IntValue]
+    UnsignedLongLong: PyType[IntValue]
 
-    Int8: PyType[TypedIntValue]
-    UInt8: PyType[TypedIntValue]
-    Int16: PyType[TypedIntValue]
-    UInt16: PyType[TypedIntValue]
-    Int32: PyType[TypedIntValue]
-    UInt32: PyType[TypedIntValue]
-    Int64: PyType[TypedIntValue]
-    UInt64: PyType[TypedIntValue]
+    Int8: PyType[IntValue]
+    UInt8: PyType[IntValue]
+    Int16: PyType[IntValue]
+    UInt16: PyType[IntValue]
+    Int32: PyType[IntValue]
+    UInt32: PyType[IntValue]
+    Int64: PyType[IntValue]
+    UInt64: PyType[IntValue]
+
+    _type_classes: MutableMapping[basetypes.Type, PyType[Value]]
 
     def __init__(self, arch: Arch) -> None:
         self.arch = arch
         self.structs: MutableMapping[str, basetypes.StructType] = {}
         self.struct_types = {}
+        self._type_classes = {}
         self._create_default_types()
 
     def _create_typed_integer_class(
         self, name: str, size: int, signed: bool
-    ) -> PyType[TypedIntValue]:
+    ) -> PyType[IntValue]:
         fixed_int_type = basetypes.BaseType(self, name, size, _signed=signed)
-
-        class typed_int_class(TypedIntValue):
-            int_type = fixed_int_type
-
-        return typed_int_class
+        int_class = self.get_class_for_type(fixed_int_type)
+        assert issubclass(int_class, IntValue)
+        return int_class
 
     def _create_default_types(self) -> None:
         self.Char = self._create_typed_integer_class(
@@ -81,7 +82,7 @@ class Namespace:
             "unsigned long", self.arch.long_size, False
         )
         self.LongLong = self._create_typed_integer_class(
-            "long_long", self.arch.long_long_size, True
+            "long long", self.arch.long_long_size, True
         )
         self.UnsignedLongLong = self._create_typed_integer_class(
             "unsigned long long", self.arch.long_long_size, False
@@ -134,17 +135,16 @@ class Namespace:
             raise ValueError(f"Invalid struct name {name}")
         return name
 
-    def __getattr__(self, name: str) -> PyType[TypedStructValue]:
+    def __getattr__(self, name: str) -> PyType[StructValue]:
         if name in self.struct_types:
             return self.struct_types[name]
         raise AttributeError
 
     def create_types(self) -> None:
-        for struct in self.structs.values():
-            struct_name = self._format_struct_name(struct.name)
-            struct_class = type(
-                struct_name, (TypedStructValue,), {"type": struct}
-            )
+        for struct_type in self.structs.values():
+            struct_name = self._format_struct_name(struct_type.name)
+            class struct_class(StructValue):
+                type = struct_type
             if hasattr(self, struct_name):
                 raise ValueError(
                     f"Struct name {struct_name} conflicts "
@@ -152,6 +152,32 @@ class Namespace:
                 )
 
             self.struct_types[struct_name] = struct_class
+    
+    def get_pointer_class_for_type(self, t: basetypes.Type) -> PyType[PointerValue]:
+        pointer_class = self.get_class_for_type(t.get_pointer_type())
+        assert issubclass(pointer_class, PointerValue)
+        return pointer_class
+    
+    def _get_superclass_for_type(self, t: basetypes.Type) -> PyType[Value]:
+        if isinstance(t, basetypes.BaseType):
+            return IntValue
+        elif isinstance(t, basetypes.PointerType):
+            return PointerValue
+        elif isinstance(t, basetypes.ArrayType):
+            return ArrayValue
+        elif isinstance(t, basetypes.StructType):
+            return StructValue
+        raise TypeError("No superclass for type {t}!")
+
+    def get_class_for_type(self, t: basetypes.Type) -> PyType[Value]:
+        if t in self._type_classes:
+            return self._type_classes[t]
+        else:
+            superclass = self._get_superclass_for_type(t)
+            class type_class(superclass):
+                type = t
+            self._type_classes[t] = type_class
+            return type_class
 
     def print_structs(self):
         for i, struct in enumerate(self.structs.values()):

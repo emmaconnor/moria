@@ -1,7 +1,9 @@
 from __future__ import annotations
 from typing import (
+    BinaryIO,
     ClassVar,
     Iterable,
+    Mapping,
     MutableMapping,
     List,
     Optional,
@@ -43,38 +45,56 @@ def _pack_integral_type(
     return bytes(little_endian_bytes)
 
 
+class AddressableStream:
+    stream: BinaryIO
+    address: int
+
+    def __init__(self, stream: BinaryIO, address: int = 0) -> None:
+        self.stream = stream
+        self.address = address
+
+    def read_exactly(self, n: int) -> bytes:
+        result = b""
+        while len(result) < n:
+            buffer = self.stream.read(n - len(result))
+            if len(buffer) == 0:
+                raise IOError("Unexpected end of stream")
+            result += buffer
+        return result
+
+
 class Value(ABC):
     CompatibleType = Union[
         "Value", str, int, bytes, float, Iterable["CompatibleType"]
     ]
 
-    type: basetypes.Type
+    # must be specified in instantiated subclasses
+    type: ClassVar[basetypes.Type]
+
     address_base: Optional[Value]
     offset: Optional[int]
 
     @abstractmethod
     def __init__(
         self,
-        t: basetypes.Type,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ) -> None:
-        self.type = t
         self.address_base: Optional[Value] = address_base
         self.offset: Optional[int] = offset
 
-    @staticmethod
+    @classmethod
     def cast(
-        t: basetypes.Type,
+        cls,
         value: CompatibleType,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ) -> Value:
-        raise TypeError(f"Type {t} cannot be assigned from {type(value)}")
+        raise TypeError(f"Type {cls.type} cannot be assigned from {type(value)}")
 
     @abstractmethod
     def initialize_default(self) -> None:
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def move(
         self,
@@ -113,9 +133,9 @@ class Value(ABC):
     def is_initialized(self) -> bool:
         raise NotImplementedError
 
-    @abstractmethod
     def ref(self) -> PointerValue:
-        raise NotImplementedError
+        pointer_type = self.namespace.get_pointer_class_for_type(self.type)
+        return pointer_type(referenced_value=self)
 
     @abstractmethod
     def pack(self) -> bytes:
@@ -125,40 +145,27 @@ class Value(ABC):
     def iter_referenced_values(self) -> Iterable[Value]:
         raise NotImplementedError
 
-    @staticmethod
-    def get_class_for_type(t: basetypes.Type) -> PyType[Value]:
-        if isinstance(t, basetypes.ArrayType):
-            return ArrayValue
-        if isinstance(t, basetypes.PointerType):
-            return PointerValue
-        if isinstance(t, basetypes.StructType):
-            return StructValue
-        if isinstance(t, basetypes.BaseType):
-            return IntValue
-        raise ValueError("unknown type")
-
 
 class IntValue(Value):
     type: basetypes.BaseType
 
     def __init__(
         self,
-        int_type: basetypes.BaseType,
         value: Optional[int] = None,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ):
-        super().__init__(int_type, address_base, offset)
+        super().__init__(address_base, offset)
         self.value: Optional[int] = value
 
-    @staticmethod
+    @classmethod
     def cast(
-        t: basetypes.BaseType,
+        cls,
         value: Value.CompatibleType,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ) -> IntValue:
-        if t.size is None:
+        if cls.type.size is None:
             raise ValueError("Cannot cast to integer type without a size")
 
         int_val: Optional[int] = None
@@ -172,15 +179,14 @@ class IntValue(Value):
             int_val = value[0]
 
         if int_val is not None:
-            mask = sum(0xFF << (i * 8) for i in range(t.size))
-            return IntValue(
-                t,
+            mask = sum(0xFF << (i * 8) for i in range(cls.type.size))
+            return cls(
                 value=int_val & mask,
                 address_base=address_base,
                 offset=offset,
             )
 
-        raise TypeError(f"Type {t} cannot be assigned from {type(value)}")
+        raise TypeError(f"Type {cls.type} cannot be assigned from {type(value)}")
 
     def initialize_default(self) -> None:
         if self.is_initialized():
@@ -199,16 +205,10 @@ class IntValue(Value):
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ) -> IntValue:
-        return IntValue(
-            self.type,
+        return self.__class__(
             value=self.value,
             address_base=address_base,
             offset=offset,
-        )
-
-    def ref(self) -> PointerValue:
-        return PointerValue(
-            basetypes.PointerType(self.type), referenced_value=self
         )
 
     def __repr__(self) -> str:
@@ -235,40 +235,26 @@ class IntValue(Value):
         )
 
 
-class TypedIntValue(IntValue):
-    int_type: basetypes.BaseType
-
-    def __init__(
-        self,
-        value: Optional[int] = None,
-        address_base: Optional[Value] = None,
-        offset: Optional[int] = None,
-    ):
-        super().__init__(self.int_type, value, address_base, offset)
-
-
 class ArrayValue(Value):
     type: basetypes.ArrayType
 
     def __init__(
         self,
-        array_type: basetypes.ArrayType,
         values: Optional[List[Value]] = None,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ):
-        super().__init__(array_type, address_base, offset)
+        super().__init__(address_base, offset)
 
-        value_class = Value.get_class_for_type(array_type.member_type)
+        value_class = self.namespace.get_class_for_type(self.type.member_type)
         assert self.type.member_type.size is not None
         if values is None:
             self.values: List[Value] = [
                 value_class(
-                    array_type.member_type,
                     address_base=self,
                     offset=i * self.type.member_type.size,
                 )
-                for i in range(array_type.count)
+                for i in range(self.type.count)
             ]
         else:
             if len(values) != self.type.count:
@@ -294,49 +280,43 @@ class ArrayValue(Value):
             yield self.address_base
         yield from self.values
 
-    @staticmethod
+    @classmethod
     def cast(
-        t: basetypes.ArrayType,
+        cls,
         value: Value.CompatibleType,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ) -> ArrayValue:
         if not isinstance(value, Iterable):
-            raise TypeError(f"Type {t} cannot be assigned from {type(value)}")
+            raise TypeError(f"Type {cls.type} cannot be assigned from {type(value)}")
         value_list = list(value)
-        if len(value_list) > t.count:
+        if len(value_list) > cls.type.count:
             raise TypeError(
-                f"Too many elements ({len(value_list)}) to fit in {t}"
+                f"Too many elements ({len(value_list)}) to fit in {cls.type}"
             )
 
         values: List[Value] = []
-        member_value_class = Value.get_class_for_type(t.member_type)
+        member_value_class = cls.type.namespace.get_class_for_type(cls.type.member_type)
         for item in value_list:
-            values.append(member_value_class.cast(t.member_type, item))
+            values.append(member_value_class.cast(item))
 
-        padding = t.count - len(value_list)
+        padding = cls.type.count - len(value_list)
         for _ in range(padding):
-            val = member_value_class(t.member_type)
+            val = member_value_class()
             val.initialize_default()
             values.append(val)
 
-        return ArrayValue(t, values, address_base, offset)
+        return cls(values, address_base, offset)
 
     def copy(
         self,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ) -> ArrayValue:
-        return ArrayValue(
-            self.type,
+        return self.__class__(
             values=self.values,
             address_base=address_base,
             offset=offset,
-        )
-
-    def ref(self) -> PointerValue:
-        return PointerValue(
-            basetypes.PointerType(self.type), referenced_value=self
         )
 
     def is_initialized(self) -> bool:
@@ -381,7 +361,7 @@ class BufferValue(Value):
     ):
         if len(values) == 0:
             raise ValueError("Cannot instantiate empty buffer")
-        super().__init__(values[0].type, address_base, offset)
+        super().__init__(address_base, offset)
         self.values: List[Value] = []
         assert self.type.size is not None
         self.values = values
@@ -407,11 +387,6 @@ class BufferValue(Value):
         offset: Optional[int] = None,
     ) -> BufferValue:
         raise NotImplementedError
-
-    def ref(self) -> PointerValue:
-        return PointerValue(
-            basetypes.PointerType(self.type), referenced_value=self
-        )
 
     def copy(
         self,
@@ -443,18 +418,17 @@ class BufferValue(Value):
 
 
 class PointerValue(Value):
-    type: basetypes.PointerType
+    type: ClassVar[basetypes.PointerType]
     raw_value: Optional[int]
 
     def __init__(
         self,
-        pointer_type: basetypes.PointerType,
         referenced_value: Optional[Value] = None,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
         raw_value: int = None,
     ):
-        super().__init__(pointer_type, address_base, offset)
+        super().__init__(address_base, offset)
         if referenced_value is not None and raw_value is not None:
             raise ValueError(
                 "Cannot have both a referenced object and a raw value."
@@ -462,9 +436,9 @@ class PointerValue(Value):
         self.referenced_value: Optional[Value] = referenced_value
         self.raw_value = raw_value
 
-    @staticmethod
+    @classmethod
     def cast(
-        t: basetypes.PointerType,
+        cls,
         value: Value.CompatibleType,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
@@ -473,29 +447,27 @@ class PointerValue(Value):
             value = value.encode("utf-8")
 
         if isinstance(value, Iterable):
-            referenced_value_class = Value.get_class_for_type(
-                t.referenced_type
+            referenced_value_class = cls.type.namespace.get_class_for_type(
+                cls.type.referenced_type
             )
             buffer = BufferValue(
                 [
-                    referenced_value_class.cast(t.referenced_type, v).copy()
+                    referenced_value_class.cast(v).copy()
                     for v in value
                 ],
             )
-            return PointerValue(
-                basetypes.PointerType(t),
+            return cls(
                 referenced_value=buffer,
                 address_base=address_base,
                 offset=offset,
             )
         elif isinstance(value, int):
-            return PointerValue(
-                basetypes.PointerType(t),
+            return cls(
                 address_base=address_base,
                 offset=offset,
                 raw_value=value,
             )
-        raise TypeError(f"Type {t} cannot be assigned from {type(value)}")
+        raise TypeError(f"Type {cls.type} cannot be assigned from {type(value)}")
 
     def initialize_default(self) -> None:
         if self.is_initialized():
@@ -509,18 +481,13 @@ class PointerValue(Value):
         if self.referenced_value is not None:
             yield self.referenced_value
 
-    def ref(self) -> PointerValue:
-        return PointerValue(
-            basetypes.PointerType(self.type), referenced_value=self
-        )
 
     def copy(
         self,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ) -> PointerValue:
-        return PointerValue(
-            self.type,
+        return self.__class__(
             referenced_value=self.referenced_value,
             address_base=address_base,
             offset=offset,
@@ -578,22 +545,30 @@ class PointerValue(Value):
 
 
 class StructValue(Value):
-    type: basetypes.StructType
+    type: ClassVar[basetypes.StructType]
+    fields: MutableMapping[str, Value]
+    field_types: Mapping[str, basetypes.Type]
 
     def __init__(
         self,
-        struct_type: basetypes.StructType,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
+        **kwargs: Value.CompatibleType
     ):
         self._initialized: bool = False
-        super().__init__(struct_type, address_base, offset)
-        self.fields: MutableMapping[str, Value] = {
-            field.name: Value.get_class_for_type(field.field_type)(
-                field.field_type, address_base=self, offset=field.offset
+        super().__init__(address_base, offset)
+        self.fields = {
+            field.name: self.type.namespace.get_class_for_type(field.field_type)(
+                address_base=self, offset=field.offset
             )
-            for field in struct_type.fields
+            for field in self.type.fields
         }
+        self.field_types = {
+            field.name: field.field_type for field in self.type.fields
+        }
+        for field_name, value in kwargs.items():
+            field_type = self.field_types[field_name]
+            self.fields[field_name] = field_type.namespace.get_class_for_type(field_type).cast(value)
         self._initialized = True
 
     def iter_referenced_values(self) -> Iterable[Value]:
@@ -601,29 +576,24 @@ class StructValue(Value):
             yield self.address_base
         yield from self.fields.values()
 
-    @staticmethod
+    @classmethod
     def cast(
-        t: basetypes.StructType,
+        cls,
         value: Value.CompatibleType,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ) -> StructValue:
-        if isinstance(value, TypedStructValue) and value.type == t:
+        if isinstance(value, StructValue) and value.type == cls.type:
             return value
-        raise TypeError(f"Type {t} cannot be assigned from {type(value)}")
-
-    def ref(self) -> PointerValue:
-        return PointerValue(
-            basetypes.PointerType(self.type), referenced_value=self
-        )
+        raise TypeError(f"Type {cls.type} cannot be assigned from {type(value)}")
 
     def copy(
         self,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ) -> StructValue:
-        struct = StructValue(
-            self.type, address_base=address_base, offset=offset
+        struct = self.__class__(
+            address_base=address_base, offset=offset
         )
         for name, field in self.fields.items():
             setattr(struct, name, field)
@@ -665,12 +635,12 @@ class StructValue(Value):
         field_type = self.fields[name].type
         offset = self.fields[name].offset
 
-        value_class = Value.get_class_for_type(field_type)
+        value_class = self.type.namespace.get_class_for_type(field_type)
         if isinstance(val, value_class):
             wrappedVal = val.copy(address_base=self, offset=offset)
         else:
             wrappedVal = value_class.cast(
-                field_type, val, address_base=self, offset=offset
+                val, address_base=self, offset=offset
             )
         self.fields[name] = wrappedVal
 
@@ -697,20 +667,3 @@ class StructValue(Value):
             last_field_end = type_field.offset + type_field.size
 
         return b"".join(parts)
-
-
-class TypedStructValue(StructValue):
-    type: ClassVar[basetypes.StructType]
-
-    def __init__(
-        self,
-        address_base: Optional[Value] = None,
-        offset: Optional[int] = None,
-        **kwargs: Value.CompatibleType,
-    ):
-        super().__init__(self.type, address_base=address_base, offset=offset)
-        for field_name, value in kwargs.items():
-            if field_name in self.fields:
-                setattr(self, field_name, value)
-            else:
-                raise TypeError(f"Unexpected keyword argument: {field_name}")

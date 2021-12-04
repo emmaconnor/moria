@@ -1,8 +1,9 @@
 import sys
 from parsers.dwarf import DwarfParser
 from util import hexdump
-from values import TypedStructValue
 from typing import List
+
+from values import StructValue
 
 EXAMPLE_BIN_PATH = "examples/userlist.bin"
 
@@ -15,7 +16,7 @@ def main():
         print(f"Binary {EXAMPLE_BIN_PATH} not found. Try building it first?")
         return 1
 
-    users: List[TypedStructValue] = [
+    users: List[StructValue] = [
         namespace.user(
             name="alice",
         ),
