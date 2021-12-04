@@ -153,7 +153,8 @@ class Value(ABC):
 
 
 class IntValue(Value):
-    type: basetypes.IntType
+    type: ClassVar[basetypes.IntType]
+    value: Optional[int]
 
     def __init__(
         self,
@@ -162,7 +163,7 @@ class IntValue(Value):
         offset: Optional[int] = None,
     ):
         super().__init__(address_base, offset)
-        self.value: Optional[int] = value
+        self.value = value
 
     @classmethod
     def unpack_from_buffer(
@@ -239,6 +240,16 @@ class IntValue(Value):
             address_base=address_base,
             offset=offset,
         )
+
+    def __float__(self) -> float:
+        return float(int(self))
+
+    def __int__(self) -> int:
+        if self.value is None:
+            raise ValueError(
+                "Cannot convert uninitialized integer value to int"
+            )
+        return self.value
 
     def __repr__(self) -> str:
         value_str = (
@@ -376,16 +387,33 @@ class ArrayValue(Value):
     def is_initialized(self) -> bool:
         return all(val.is_initialized() for val in self.values)
 
+    def is_character_array(self):
+        return (
+            isinstance(self.type.member_type, basetypes.IntType)
+            and self.type.member_type.size == 1
+        )
+
+    def __bytes__(self) -> bytes:
+        if not self.is_character_array():
+            raise TypeError(
+                "Byte conversion is only supported for int8_t and uint8_t arrays."
+            )
+
+        char_vals = []
+        for val in self.values:
+            assert isinstance(val, IntValue) and val.type.size == 1
+            if val.value == 0:
+                break
+            char_vals.append(val.value)
+        return bytes(char_vals)
+
+    def __str__(self) -> str:
+        return bytes(self).decode("utf-8")
+
     def __repr__(self) -> str:
         if self.is_initialized():
-            if self.type.member_type.name == "char":
-                char_vals = []
-                for val in self.values:
-                    assert isinstance(val, IntValue) and val.type.size == 1
-                    if val.value == 0:
-                        break
-                    char_vals.append(val.value)
-                return f"(char[{self.type.count}]){bytes(char_vals)!r}"
+            if self.is_character_array():
+                return f"(char[{self.type.count}]){bytes(self)!r}"
             else:
                 return "{" + ", ".join(str(val) for val in self.values) + "}"
         else:
@@ -592,6 +620,11 @@ class PointerValue(Value):
             else "None"
         )
         return f"<PointerValue to {pointed_type}>"
+
+    def __int__(self) -> int:
+        if self.pointed_address is None:
+            raise ValueError("Pointer has no initialized value.")
+        return self.pointed_address
 
     def __str__(self) -> str:
         pointed_type = (

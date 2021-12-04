@@ -17,15 +17,9 @@ def main():
         return 1
 
     users: List[StructValue] = [
-        ns.user(
-            name="alice",
-        ),
-        ns.user(
-            name="bob",
-        ),
-        ns.user(
-            name="charlie",
-        ),
+        ns.user(name="alice"),
+        ns.user(name="bob"),
+        ns.user(name="charlie"),
     ]
 
     for i in range(len(users)):
@@ -38,7 +32,7 @@ def main():
         next_user.prev = user.ref()
         user.next = next_user.ref()
 
-    start_address = 0x560A61DF4000
+    start_address = 0x560000000000
     packed = ns.pack_values(start_address, 0x1000, users)
     hexdump(packed, start_address=start_address)
 
@@ -47,6 +41,7 @@ def main():
     )
 
     for user in unpacked_users.values:
+        assert isinstance(user, StructValue)
         print(user)
 
     return 0
