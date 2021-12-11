@@ -1,12 +1,12 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, List
 from typing import Type as PyType
 
-from util import SortedList
-import namespace as ns
-import values
+from moria.util import SortedList
+import moria.namespace as ns
+import moria.values as values
 
 
 class Type(ABC):
@@ -54,17 +54,30 @@ class IntType(Type):
     namespace: ns.Namespace
     _name: str
     _size: Optional[int]
-    _signed: Optional[bool] = None
+    _signed: bool
 
     @property
     def name(self) -> str:
         return self._name
 
     @property
-    def is_signed(self) -> bool:
-        if self._signed is not None:
-            return self._signed
-        return "unsigned" not in self.name.split()
+    def min(self) -> int:
+        if self.signed:
+            return -self.max - 1
+        return 0
+
+    @property
+    def max(self) -> int:
+        if self.size is None:
+            raise ValueError("int of unkown size has no max or min")
+        n_bits = self.size * 8
+        if self.signed:
+            return (1 << ((n_bits) - 1)) - 1
+        return (1 << (n_bits)) - 1
+
+    @property
+    def signed(self) -> bool:
+        return self._signed
 
     @property
     def size(self) -> Optional[int]:
@@ -82,8 +95,9 @@ class IntType(Type):
         )
 
     def __repr__(self) -> str:
-        un = "un" if not self.is_signed else ""
-        return f"<IntType {self.size} bytes, {un}signed>"
+        un = "un" if not self.signed else ""
+        s = "s" if self.size != 1 else ""
+        return f"<IntType {self.size} byte{s}, {un}signed>"
 
     def __str__(self) -> str:
         return self.name
@@ -196,10 +210,8 @@ class StructField:
         )
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, StructField):
-            return False
         return (
-            isinstance(other, StructType)
+            isinstance(other, StructField)
             and other.namespace is self.namespace
             and self.offset == other.offset
             and self.field_type == other.field_type
@@ -219,11 +231,19 @@ class StructType(Type):
     def add_field(self, field: StructField) -> None:
         self.fields.insert(field)
 
-    def print_struct(self) -> None:
-        print(f"{self.name} {{")
+    def _pretty_lines(self, indent=0) -> List[str]:
+        lines = []
+        lines.append(f"{self.name} {{")
         for field in self.fields:
-            print(f"  {field}")
-        print(f"}} = {self.size} bytes")
+            if isinstance(field.field_type, StructType):
+                lines += field.field_type._pretty_lines(2)
+            else:
+                lines.append(f"  {field};")
+        lines.append(f"}};")
+        return [(' '*indent) + line for line in lines]
+
+    def pretty_string(self) -> str:
+        return "\n".join(self._pretty_lines())
 
     def __repr__(self) -> str:
         fields = ", ".join(str(field) for field in self.fields)

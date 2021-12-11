@@ -6,14 +6,16 @@ from typing import (
     MutableMapping,
     List,
     Optional,
+    Sequence,
     Union,
 )
 
 from abc import ABC, abstractmethod
-from arch import Endianness
+from typing import Type as PyType
 
-import namespace as ns
-import basetypes
+from moria.arch import Endianness
+import moria.namespace as ns
+import moria.basetypes as basetypes
 
 
 def _pack_integral_type(
@@ -70,7 +72,6 @@ class Value(ABC):
     address_base: Optional[Value]
     offset: Optional[int]
 
-    @abstractmethod
     def __init__(
         self,
         address_base: Optional[Value] = None,
@@ -78,6 +79,14 @@ class Value(ABC):
     ) -> None:
         self.address_base: Optional[Value] = address_base
         self.offset: Optional[int] = offset
+
+    @classmethod
+    def get_pointer_class(
+        cls,
+    ) -> PyType[PointerValue]:
+        pointer_class = cls.type.namespace.get_class_for_type(cls.type.get_pointer_type())
+        assert issubclass(pointer_class, PointerValue)
+        return pointer_class
 
     @classmethod
     def unpack_from_buffer(
@@ -95,12 +104,6 @@ class Value(ABC):
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ) -> Value:
-        raise TypeError(
-            f"Type {cls.type} cannot be assigned from {type(value)}"
-        )
-
-    @abstractmethod
-    def initialize_default(self) -> None:
         raise NotImplementedError()
 
     def move(
@@ -134,22 +137,18 @@ class Value(ABC):
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
     ) -> Value:
-        raise NotImplementedError
-
-    @abstractmethod
-    def is_initialized(self) -> bool:
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def ref(self) -> PointerValue:
         return self.type.pointer_class(referenced_value=self)
 
     @abstractmethod
     def pack(self) -> bytes:
-        raise NotImplementedError
+        raise NotImplementedError()
 
     @abstractmethod
     def iter_referenced_values(self) -> Iterable[Value]:
-        raise NotImplementedError
+        raise NotImplementedError()
 
 
 class IntValue(Value):
@@ -163,6 +162,12 @@ class IntValue(Value):
         offset: Optional[int] = None,
     ):
         super().__init__(address_base, offset)
+        if value and not self.type.min <= value <= self.type.max:
+            un = "un" if not self.type.signed else ""
+            raise ValueError(
+                f"Integer {value} cannot be "
+                f"represented by {un}signed int of size {self.type.size}"
+            )
         self.value = value
 
     @classmethod
@@ -181,7 +186,7 @@ class IntValue(Value):
         val = _unpack_integral_type(
             buffer,
             cls.type.size,
-            cls.type.is_signed,
+            cls.type.signed,
             cls.type.namespace.arch.endianness,
         )
         return cls(value=val, address_base=address_base, offset=offset)
@@ -208,8 +213,12 @@ class IntValue(Value):
 
         if int_val is not None:
             mask = sum(0xFF << (i * 8) for i in range(cls.type.size))
+            num = int_val & mask
+            if num > cls.type.max:
+                num = -((~num + 1) & mask)
+
             return cls(
-                value=int_val & mask,
+                value=num,
                 address_base=address_base,
                 offset=offset,
             )
@@ -218,17 +227,9 @@ class IntValue(Value):
             f"Type {cls.type} cannot be assigned from {type(value)}"
         )
 
-    def initialize_default(self) -> None:
-        if self.is_initialized():
-            return
-        self.value = 0
-
     def iter_referenced_values(self) -> Iterable[Value]:
         if self.address_base is not None:
             yield self.address_base
-
-    def is_initialized(self) -> bool:
-        return self.value is not None
 
     def copy(
         self,
@@ -270,7 +271,7 @@ class IntValue(Value):
         return _pack_integral_type(
             val,
             self.type.size,
-            signed=self.type.is_signed,
+            signed=self.type.signed,
             endianness=self.namespace.arch.endianness,
         )
 
@@ -326,17 +327,11 @@ class ArrayValue(Value):
         for i in range(count):
             vals.append(
                 member_class.unpack_from_buffer(
-                    buffer[item_offset : item_offset + item_size],
+                    buffer[item_offset: item_offset + item_size],
                 )
             )
             item_offset += item_size
         return cls(vals, address_base=address_base, offset=offset)
-
-    def initialize_default(self) -> None:
-        if self.is_initialized():
-            return
-        for val in self.values:
-            val.initialize_default()
 
     def iter_referenced_values(self) -> Iterable[Value]:
         if self.address_base is not None:
@@ -368,7 +363,6 @@ class ArrayValue(Value):
         padding = cls.type.count - len(value_list)
         for _ in range(padding):
             val = member_class()
-            val.initialize_default()
             values.append(val)
 
         return cls(values, address_base, offset)
@@ -384,10 +378,7 @@ class ArrayValue(Value):
             offset=offset,
         )
 
-    def is_initialized(self) -> bool:
-        return all(val.is_initialized() for val in self.values)
-
-    def is_character_array(self):
+    def is_character_array(self) -> bool:
         return (
             isinstance(self.type.member_type, basetypes.IntType)
             and self.type.member_type.size == 1
@@ -402,22 +393,22 @@ class ArrayValue(Value):
         char_vals = []
         for val in self.values:
             assert isinstance(val, IntValue) and val.type.size == 1
-            if val.value == 0:
+            if val.value is None or val.value == 0:
                 break
             char_vals.append(val.value)
         return bytes(char_vals)
+
+    def __len__(self) -> int:
+        return self.type.count
 
     def __str__(self) -> str:
         return bytes(self).decode("utf-8")
 
     def __repr__(self) -> str:
-        if self.is_initialized():
-            if self.is_character_array():
-                return f"(char[{self.type.count}]){bytes(self)!r}"
-            else:
-                return "{" + ", ".join(str(val) for val in self.values) + "}"
+        if self.is_character_array():
+            return f"(char[{self.type.count}]){bytes(self)!r}"
         else:
-            return f"{{<uninitialized>, ... * {self.type.count}}}"
+            return "{" + ", ".join(str(val) for val in self.values) + "}"
 
     def pack(self) -> bytes:
         parts: List[bytes] = []
@@ -429,82 +420,6 @@ class ArrayValue(Value):
         for elem in self.values:
             part = elem.pack()
             assert len(part) == self.type.member_type.size
-            parts.append(part)
-
-        return b"".join(parts)
-
-
-class BufferValue(Value):
-    def __init__(
-        self,
-        values: List[Value],
-        address_base: Optional[Value] = None,
-        offset: Optional[int] = None,
-    ):
-        if len(values) == 0:
-            raise ValueError("Cannot instantiate empty buffer")
-        super().__init__(address_base, offset)
-        self.values: List[Value] = []
-        assert self.type.size is not None
-        self.values = values
-        for i, val in enumerate(self.values):
-            val.move(address_base=self, offset=i * self.type.size)
-
-    @classmethod
-    def unpack_from_buffer(
-        cls,
-        buffer: bytes,
-        address_base: Optional[Value] = None,
-        offset: Optional[int] = None,
-    ):
-        raise NotImplementedError()
-
-    @classmethod
-    def cast(
-        cls,
-        value: Value.CompatibleType,
-        address_base: Optional[Value] = None,
-        offset: Optional[int] = None,
-    ) -> Value:
-        raise TypeError(
-            f"Type {cls.type} cannot be assigned from {type(value)}"
-        )
-
-    def iter_referenced_values(self) -> Iterable[Value]:
-        if self.address_base is not None:
-            yield self.address_base
-        yield from self.values
-
-    def initialize_default(self) -> None:
-        if self.is_initialized():
-            return
-        for val in self.values:
-            val.initialize_default()
-
-    def copy(
-        self,
-        address_base: Optional[Value] = None,
-        offset: Optional[int] = None,
-    ) -> BufferValue:
-        return BufferValue(
-            [val.copy() for val in self.values],
-            address_base=address_base,
-            offset=offset,
-        )
-
-    def is_initialized(self) -> bool:
-        return all(val.is_initialized() for val in self.values)
-
-    def pack(self) -> bytes:
-        parts: List[bytes] = []
-
-        assert (
-            self.type.size is not None
-        ), "Cannot serialize array elements of unresolved size"
-
-        for elem in self.values:
-            part = elem.pack()
-            assert len(part) == self.type.size
             parts.append(part)
 
         return b"".join(parts)
@@ -554,8 +469,10 @@ class PointerValue(Value):
         if isinstance(value, str):
             value = value.encode("utf-8")
 
-        if isinstance(value, Iterable):
-            buffer = BufferValue(
+        if isinstance(value, Sequence):
+            array_class = cls.type.namespace.array(
+                cls.type.referenced_type.value_class, len(value))
+            buffer = array_class(
                 [
                     cls.type.referenced_type.value_class.cast(v).copy()
                     for v in value
@@ -575,12 +492,6 @@ class PointerValue(Value):
         raise TypeError(
             f"Type {cls.type} cannot be assigned from {type(value)}"
         )
-
-    def initialize_default(self) -> None:
-        if self.is_initialized():
-            return
-        self.referenced_value = None
-        self.raw_value = 0
 
     def iter_referenced_values(self) -> Iterable[Value]:
         if self.address_base is not None:
@@ -610,16 +521,9 @@ class PointerValue(Value):
             return None
         return self.referenced_value.address
 
-    def is_initialized(self) -> bool:
-        return self.pointed_address is not None
-
     def __repr__(self) -> str:
-        pointed_type = (
-            self.referenced_value.type
-            if self.referenced_value is not None
-            else "None"
-        )
-        return f"<PointerValue to {pointed_type}>"
+        addr = self.pointed_address
+        return f"<PointerValue to {self.type.referenced_type}@{addr}>"
 
     def __int__(self) -> int:
         if self.pointed_address is None:
@@ -633,7 +537,9 @@ class PointerValue(Value):
             else "void"
         )
         if self.pointed_address is None:
-            addr = "NULL"
+            addr = "None"
+        elif self.pointed_address == 0:
+            addr = f"NULL"
         else:
             addr = f"0x{self.pointed_address:x}"
         return f"({pointed_type}*){addr}"
@@ -687,12 +593,12 @@ class StructValue(Value):
         buffer: bytes,
         address_base: Optional[Value] = None,
         offset: Optional[int] = None,
-    ):
+    ) -> StructValue:
         assert len(buffer) == cls.type.size
         values = {}
         for field in cls.type.fields:
             assert field.size is not None
-            buffer_part = buffer[field.offset : field.offset + field.size]
+            buffer_part = buffer[field.offset: field.offset + field.size]
             values[
                 field.name
             ] = field.field_type.value_class.unpack_from_buffer(buffer_part)
@@ -713,7 +619,7 @@ class StructValue(Value):
         if isinstance(value, StructValue) and value.type == cls.type:
             return value
         raise TypeError(
-            f"Type {cls.type} cannot be assigned from {type(value)}"
+            f"Type {cls.type} cannot be cast from {type(value)}"
         )
 
     def copy(
@@ -726,29 +632,16 @@ class StructValue(Value):
             setattr(struct, name, field)
         return struct
 
-    def initialize_default(self) -> None:
-        if self.is_initialized():
-            return
-        for val in self.fields.values():
-            val.initialize_default()
-
-    def is_initialized(self) -> bool:
-        return all(val.is_initialized() for val in self.fields.values())
-
     def __repr__(self):
         fields = " ".join(
             f"{field.name}={self.fields[field.name]}"
             for field in self.type.fields
         )
         addr = f"0x{self.address:x}" if self.address is not None else "None"
-        return f"<struct {self.type.name} @{addr}: {fields})>"
+        return f"<struct {self.type.name} @{addr}: {fields}>"
 
     def __getattr__(self, name: str) -> Value:
-        if name == "_initialized" or not self._initialized:
-            raise AttributeError(
-                f"Struct {self.type.name} has no attribute {name}"
-            )
-        attr = self.fields[name]
+        attr = self.fields.get(name)
         if attr is not None:
             return attr
         raise AttributeError(f"Struct {self.type.name} has no field {name}")
@@ -780,9 +673,8 @@ class StructValue(Value):
             field_value = self.fields[type_field.name]
             try:
                 field_bytes = field_value.pack()
-            except Exception:
-                print(f"unable to pack field {type_field.name}")
-                raise
+            except Exception as err:
+                raise Exception(f"unable to pack field {type_field.name}", err)
 
             assert (
                 type_field.size is not None

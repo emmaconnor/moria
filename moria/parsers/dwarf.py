@@ -2,16 +2,16 @@ from typing import Iterable, BinaryIO
 
 from elftools.elf.elffile import ELFFile
 from elftools.dwarf.die import DIE
-from arch import Arch, Endianness
 
-from basetypes import (
+from moria.arch import Arch, Endianness
+from moria.basetypes import (
     IntType,
     PointerType,
     ArrayType,
     StructField,
     Type,
 )
-import namespace
+import moria.namespace as ns
 
 
 class DwarfParser:
@@ -36,9 +36,9 @@ class DwarfParser:
             return
 
         self.dwarf_info = self.elf_file.get_dwarf_info()
-        self.namespace = namespace.Namespace(Arch(endianness, word_size))
+        self.namespace = ns.Namespace(Arch(endianness, word_size))
 
-    def create_namespace(self) -> namespace.Namespace:
+    def create_namespace(self) -> ns.Namespace:
         for compilation_unit in self.dwarf_info.iter_CUs():
             top_DIE = compilation_unit.get_top_DIE()
             self.recurse_die(top_DIE)

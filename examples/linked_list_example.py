@@ -1,11 +1,21 @@
 import sys
-from parsers.dwarf import DwarfParser
-from util import hexdump
+
 from typing import List
 
-from values import StructValue
+try:
+    from moria.parsers.dwarf import DwarfParser
+    from moria.util import hexdump
+    from moria.values import StructValue
+except ImportError:
+    # In case moria is not installed, add the parent folder to the module
+    # search path so that it's still possible to run this script from the
+    # examples directory.
+    sys.path.append("..")
+    from moria.parsers.dwarf import DwarfParser
+    from moria.util import hexdump
+    from moria.values import StructValue
 
-EXAMPLE_BIN_PATH = "examples/userlist.bin"
+EXAMPLE_BIN_PATH = "cprograms/userlist.bin"
 
 
 def main():

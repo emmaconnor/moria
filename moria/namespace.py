@@ -9,10 +9,10 @@ from typing import (
 # we already have a "Type" class, so we need to avoid a name conflict here
 from typing import Type as PyType
 import re
-from arch import Arch
+from moria.arch import Arch
 
-import basetypes
-from values import ArrayValue, PointerValue, Value, StructValue, IntValue
+import moria.basetypes as basetypes
+from moria.values import ArrayValue, PointerValue, Value, StructValue, IntValue
 
 
 class Namespace:
@@ -39,7 +39,9 @@ class Namespace:
     Int64: PyType[IntValue]
     UInt64: PyType[IntValue]
 
-    _type_classes: MutableMapping[basetypes.Type, PyType[Value]]
+    VoidPointer: PyType[PointerValue]
+
+    _type_classes: MutableMapping[str, PyType[Value]]
 
     def __init__(self, arch: Arch) -> None:
         self.arch = arch
@@ -97,6 +99,10 @@ class Namespace:
         self.UInt32 = self._create_typed_integer_class("uint32_t", 4, False)
         self.Int64 = self._create_typed_integer_class("int64_t", 8, True)
         self.UInt64 = self._create_typed_integer_class("uint64_t", 8, False)
+
+        void_pointer_class = self.get_class_for_type(basetypes.IntType(self, 'void', None, False).get_pointer_type())
+        assert(issubclass(void_pointer_class, PointerValue))
+        self.VoidPointer = void_pointer_class
 
     def array(self, t: PyType[Value], count: int) -> PyType[ArrayValue]:
         array_type = basetypes.ArrayType(self, t.type, count)
@@ -171,19 +177,19 @@ class Namespace:
         raise TypeError("No superclass for type {t}!")
 
     def get_class_for_type(self, t: basetypes.Type) -> PyType[Value]:
-        if t in self._type_classes:
-            return self._type_classes[t]
+        if t.name in self._type_classes:
+            return self._type_classes[t.name]
         else:
             superclass = self._get_superclass_for_type(t)
 
             class type_class(superclass):
                 type = t
 
-            self._type_classes[t] = type_class
+            self._type_classes[t.name] = type_class
             return type_class
 
     def print_structs(self):
         for i, struct in enumerate(self.structs.values()):
             if i > 0:
                 print()
-            struct.print_struct()
+            print(struct.pretty_string())
