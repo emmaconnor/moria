@@ -1,4 +1,4 @@
-![Tests](https://github.com/josconno/moria/actions/workflows/python-tests.yml/badge.svg)
+![Tox](https://github.com/josconno/moria/actions/workflows/python-tests.yml/badge.svg)
 
 # Moria
 
