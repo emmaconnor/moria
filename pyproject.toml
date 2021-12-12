@@ -1,0 +1,22 @@
+[project]
+name = "moria-c"
+version = "0.0.5"
+description = "Manipulate in-memory C structures with Python."
+authors = [
+    "Joe Connor <josconno@gmail.com>"
+]
+license = "MIT"
+readme = "README.md"
+python = "^3.7"
+homepage = "https://github.com/josconno/moria"
+repository = "https://github.com/josconno/moria"
+documentation = "https://github.com/josconno/moria"
+
+keywords = []
+
+classifiers = [
+]
+
+# Requirements
+[dependencies]
+pyelftools
