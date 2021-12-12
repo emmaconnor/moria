@@ -22,6 +22,12 @@ A library for interacting with in-memory C structures. With Moria, you can:
 
 Data-only memory corruption exploits can involve reading and writing complex data structures in the target address space. Moria makes development of these types of exploits much easier. 
 
+## Install
+
+```
+pip install moria-c
+```
+
 ## Examples
 
 Moria can manipulate complicated in-memory C datastructures using high-level python objects. For example, take the following C declaration for a linked list of user data:
