@@ -19,4 +19,4 @@ classifiers = [
 
 # Requirements
 [dependencies]
-pyelftools
+pyelftools = "^0.27"
