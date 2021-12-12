@@ -3,9 +3,9 @@
 # Moria
 [![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/josconno/moria?sort=semver)](https://github.com/josconno/moria/tree/latest)
 [![Build Status](https://github.com/josconno/moria/actions/workflows/python-tests.yml/badge.svg)](https://github.com/josconno/moria/actions/workflows/python-tests.yml)
-[![PyPI version](https://badge.fury.io/py/moria.svg)](https://badge.fury.io/py/moria)
+[![PyPI version](https://badge.fury.io/py/moria-c.svg)](https://badge.fury.io/py/moria-c)
 [![Coverage Status](https://codecov.io/github/josconno/moria/coverage.svg?branch=main)](https://codecov.io/github/josconno/moria)
-[![PyPI](https://img.shields.io/pypi/pyversions/moria.svg?maxAge=2592000)](https://pypi.python.org/pypi/moria)
+[![PyPI](https://img.shields.io/pypi/pyversions/moria-c.svg?maxAge=2592000)](https://pypi.python.org/pypi/moria-c)
 
 
 A library for interacting with in-memory C structures. With Moria, you can:
