@@ -10,7 +10,7 @@ except ImportError:
     # In case moria is not installed, add the parent folder to the module
     # search path so that it's still possible to run this script from the
     # examples directory.
-    sys.path.append("..")
+    sys.path.append("../src")
     from moria.parsers.dwarf import DwarfParser
     from moria.util import hexdump
     from moria.values import StructValue
