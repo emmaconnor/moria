@@ -14,6 +14,16 @@ from moria.basetypes import (
 import moria.namespace as ns
 
 
+DW_ATE_address = 0x1
+DW_ATE_boolean = 0x2
+DW_ATE_complex_float = 0x3
+DW_ATE_float = 0x4
+DW_ATE_signed = 0x5
+DW_ATE_signed_char = 0x6
+DW_ATE_unsigned = 0x7
+DW_ATE_unsigned_char = 0x8
+
+
 class DwarfParser:
     def __init__(self, stream: BinaryIO) -> None:
         self.elf_file = ELFFile(stream)
@@ -76,7 +86,7 @@ class DwarfParser:
         ):
             type_size = die.attributes.get("DW_AT_byte_size").value
             return PointerType(
-                IntType(self.namespace, "void", None), type_size
+                IntType(self.namespace, "void", None, False), type_size
             )
 
         type_die = die.get_DIE_from_attribute("DW_AT_type")
@@ -101,7 +111,22 @@ class DwarfParser:
                 "utf-8"
             )
             type_size = type_die.attributes.get("DW_AT_byte_size").value
-            return IntType(self.namespace, type_name, type_size)
+            encoding = type_die.attributes.get("DW_AT_encoding").value
+            if encoding in (
+                DW_ATE_signed,
+                DW_ATE_signed_char,
+            ):
+                return IntType(self.namespace, type_name, type_size, True)
+            elif encoding in (
+                DW_ATE_boolean,
+                DW_ATE_address,
+                DW_ATE_unsigned,
+                DW_ATE_unsigned_char,
+                DW_ATE_float, # TODO proper floating point support
+            ):
+                return IntType(self.namespace, type_name, type_size, False)
+            else:
+                raise NotImplementedError(f"Unsupported encoding: 0x{encoding:x}")
         elif type_die.tag == "DW_TAG_typedef":
             if "DW_AT_type" in type_die.attributes:
                 return self.resolve_type(type_die)
@@ -112,7 +137,8 @@ class DwarfParser:
             return IntType(
                 self.namespace,
                 type_name,
-                type_size.value if type_size is not None else None,
+                None,
+                False
             )
         else:
             raise NotImplementedError(f"Unknown type tag: {type_die.tag}")
