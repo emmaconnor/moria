@@ -1,6 +1,6 @@
 [project]
 name = "moria-c"
-version = "0.0.6"
+version = "0.0.7"
 description = "Manipulate in-memory C structures with Python."
 authors = [
     "Joe Connor <josconno@gmail.com>"
