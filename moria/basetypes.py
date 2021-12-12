@@ -233,7 +233,7 @@ class StructType(Type):
 
     def _pretty_lines(self, indent=0) -> List[str]:
         lines = []
-        lines.append(f"{self.name} {{")
+        lines.append(f"struct {self.name} {{")
         for field in self.fields:
             if isinstance(field.field_type, StructType):
                 lines += field.field_type._pretty_lines(2)

@@ -43,7 +43,6 @@ class DwarfParser:
 
         if not self.elf_file.has_dwarf_info():
             raise ValueError("File has no DWARf debug info.")
-            return
 
         self.dwarf_info = self.elf_file.get_dwarf_info()
         self.namespace = ns.Namespace(Arch(endianness, word_size))
@@ -84,10 +83,7 @@ class DwarfParser:
             die.tag == "DW_TAG_pointer_type"
             and "DW_AT_type" not in die.attributes
         ):
-            type_size = die.attributes.get("DW_AT_byte_size").value
-            return PointerType(
-                IntType(self.namespace, "void", None, False), type_size
-            )
+            return IntType(self.namespace, "void", None, False)
 
         type_die = die.get_DIE_from_attribute("DW_AT_type")
         if type_die.tag == "DW_TAG_pointer_type":
@@ -137,7 +133,7 @@ class DwarfParser:
             return IntType(
                 self.namespace,
                 type_name,
-                None,
+                type_size.value if type_size is not None else None,
                 False
             )
         else:

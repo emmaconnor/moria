@@ -133,12 +133,12 @@ class TestStructType:
 
     def test_reprs(self):
         for ns in make_namespaces():
-            child_type = StructType(ns, 'struct child')
+            child_type = StructType(ns, 'child')
             child_type.add_field(StructField(ns, 0, ns.UInt32.type, 'j'))
             child_type.add_field(StructField(ns, 4, ns.array(ns.Char, 16).type, 'name'))
-            assert repr(child_type) == "<StructType struct child: uint32_t j, char[16] name>"
+            assert repr(child_type) == "<StructType child: uint32_t j, char[16] name>"
 
-            struct_type = StructType(ns, 'struct parent')
+            struct_type = StructType(ns, 'parent')
             struct_type.add_field(StructField(ns, 0, ns.UInt32.type, 'i'))
             struct_type.add_field(StructField(ns, 4, child_type, 'child'))
 

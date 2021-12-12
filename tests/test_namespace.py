@@ -1,8 +1,28 @@
 import pytest
-from tests.helpers import make_namespaces, amd64_namespace
+from tests.helpers import amd64_namespace
+from moria.basetypes import Type
+from typing import Any
 
 
 class TestNamespace:
+    def test_no_superclass(self) -> None:
+        ns = amd64_namespace()
+
+        with pytest.raises(TypeError):
+            ns._get_superclass_for_type(None) # type: ignore
+
+    def test_conflicting_struct_name(self) -> None:
+        ns = amd64_namespace()
+        ns.get_or_create_struct_type('__init__')
+        with pytest.raises(ValueError):
+            ns.initialize_struct_classes()
+
+    def test_struct_name(self) -> None:
+        ns = amd64_namespace()
+        assert ns._format_struct_name('test') == 'test'
+        with pytest.raises(ValueError):
+            ns._format_struct_name('!')
+
     def test_pack_cyclic(self) -> None:
         ns = amd64_namespace()
         i = ns.Int()
