@@ -8,6 +8,7 @@ def test_hexdump(capfd: pytest.CaptureFixture):
     assert err == ''
     assert out == "0000000000000010  68 65 6c 6c 6f 00 01 ff                           |hello...|\n"
 
+
 def test_sorted_list():
     def comp_ints(x: int, y: int) -> int:
         return x - y
@@ -16,4 +17,3 @@ def test_sorted_list():
     for n in nums_to_insert:
         nums.insert(n)
     assert list(nums) == sorted(nums_to_insert)
-
