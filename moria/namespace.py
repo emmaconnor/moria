@@ -10,6 +10,7 @@ from typing import (
 from typing import Type as PyType
 import re
 from moria.arch import Arch
+from moria.pack import HeapPacker
 
 import moria.basetypes as basetypes
 from moria.values import ArrayValue, PointerValue, Value, StructValue, IntValue
@@ -100,7 +101,8 @@ class Namespace:
         self.Int64 = self._create_typed_integer_class("int64_t", 8, True)
         self.UInt64 = self._create_typed_integer_class("uint64_t", 8, False)
 
-        void_pointer_class = self.get_class_for_type(basetypes.IntType(self, 'void', None, False).get_pointer_type())
+        void_pointer_class = self.get_class_for_type(
+            basetypes.IntType(self, 'void', None, False).get_pointer_type())
         assert(issubclass(void_pointer_class, PointerValue))
         self.VoidPointer = void_pointer_class
 
@@ -113,8 +115,6 @@ class Namespace:
     def pack_values(
         self, base_address: int, max_size: int, values: Iterable[Value]
     ) -> bytes:
-        start_address = base_address
-        end_address = base_address + max_size
         all_values: Set[Value] = set()
         to_traverse: List[Value] = list(values)
         while len(to_traverse) > 0:
@@ -124,16 +124,49 @@ class Namespace:
                 if child not in all_values:
                     to_traverse.append(child)
 
-        packed_values: List[Value] = []
+        free_values: Set[Value] = set()
+        fixed_values: Set[Value] = set()
         for val in all_values:
-            if val.address_base is None and val.offset is None:
-                assert val.type.size is not None
-                assert start_address + val.type.size < end_address
-                val.offset = start_address
-                start_address += val.type.size
-                packed_values.append(val)
+            parent = val
+            path_to_parent: List[Value] = [val]
+            while parent.address_base is not None:
+                parent = parent.address_base
+                if parent in path_to_parent:
+                    path_to_parent.append(parent)
+                    path_str = ' -> '.join(repr(v) for v in path_to_parent)
+                    raise ValueError(f'Cyclic address dependency: {path_str}')
+                path_to_parent.append(parent)
+            if parent.offset is None:
+                free_values.add(parent)
+            else:
+                fixed_values.add(parent)
 
-        return b"".join(val.pack() for val in packed_values)
+        packer = HeapPacker(base_address, max_size)
+        for val in fixed_values:
+            assert val.type.size is not None
+            assert val.address is not None
+            packer.alloc(val.type.size, val.address)
+
+        for val in free_values:
+            assert val.type.size is not None
+            val.offset = packer.alloc(val.type.size)
+
+        parts: List[bytes] = []
+        vals_to_pack: List[Value] = list(free_values) + list(fixed_values)
+        vals_to_pack.sort(key=lambda val: val.address or 0)
+        for i, val in enumerate(vals_to_pack):
+            assert val.address is not None
+            assert val.type.size is not None
+            part_end = val.address + val.type.size
+            if i < len(vals_to_pack) - 1:
+                next_start = vals_to_pack[i+1].address
+                assert next_start is not None
+                pad = next_start - part_end
+            else:
+                pad = 0
+            parts.append(val.pack() + pad*b'\x00')
+
+        return b"".join(parts)
 
     def get_or_create_struct_type(self, name: str) -> basetypes.StructType:
         struct = self.structs.get(name)
