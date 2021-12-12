@@ -5,11 +5,11 @@ def hexdump(data: bytes, start_address: int = 0) -> None:
     chunk_size = 16
     group_size = 8
     for i in range(0, len(data), chunk_size):
-        chunk = data[i : i + chunk_size]
+        chunk = data[i: i + chunk_size]
         hex_bytes = [f"{byte:02x}" for byte in chunk]
         hex_chunks = []
         for j in range(0, len(chunk), group_size):
-            hex_chunk = hex_bytes[j : j + group_size]
+            hex_chunk = hex_bytes[j: j + group_size]
             hex_chunks.append(" ".join(hex_chunk))
 
         data_hex = "  ".join(hex_chunks)
