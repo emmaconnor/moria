@@ -1,4 +1,8 @@
+![Tests](https://github.com/github/docs/actions/workflows/python-tests.yml/badge.svg)
+
 # Moria
+
+
 A library for interacting with in-memory C structures. With Moria, you can:
 
   - Extract C struct information from compiled binaries (using DWARF debug info)
