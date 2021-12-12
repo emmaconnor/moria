@@ -1,4 +1,4 @@
-![Tests](https://github.com/github/docs/actions/workflows/python-tests.yml/badge.svg)
+![Tests](https://github.com/josconno/moria/actions/workflows/python-tests.yml/badge.svg)
 
 # Moria
 
