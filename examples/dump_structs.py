@@ -1,6 +1,6 @@
 import argparse
 import sys
-from parsers.dwarf import DwarfParser
+from moria.parsers.dwarf import DwarfParser
 
 EXAMPLE_BIN_PATH = "examples/userlist.bin"
 
@@ -11,7 +11,7 @@ def main():
     args = parser.parse_args()
     try:
         with open(args.input, "rb") as binary:
-            namespace = DwarfParser(binary).parse()
+            namespace = DwarfParser(binary).create_namespace()
     except FileNotFoundError:
         print("File not found.")
         return 1
