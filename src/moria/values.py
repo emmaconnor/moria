@@ -638,7 +638,7 @@ class StructValue(Value):
             for field in self.type.fields
         )
         addr = f"0x{self.address:x}" if self.address is not None else "None"
-        return f"<struct {self.type.name} @{addr}: {fields}>"
+        return f"<{self.type.name} @{addr}: {fields}>"
 
     def __getattr__(self, name: str) -> Value:
         attr = self.fields.get(name)

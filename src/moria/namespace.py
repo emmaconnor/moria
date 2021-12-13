@@ -188,7 +188,7 @@ class Namespace:
 
     def initialize_struct_classes(self) -> None:
         for struct_type in self.structs.values():
-            struct_name = self._format_struct_name(struct_type.name)
+            struct_name = self._format_struct_name(struct_type.struct_name)
             struct_class = self.get_class_for_type(struct_type)
             assert issubclass(struct_class, StructValue)
             if hasattr(self, struct_name):

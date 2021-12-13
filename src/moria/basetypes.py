@@ -233,7 +233,7 @@ class StructType(Type):
 
     def _pretty_lines(self, indent=0) -> List[str]:
         lines = []
-        lines.append(f"struct {self.name} {{")
+        lines.append(f"{self.name} {{")
         for field in self.fields:
             if isinstance(field.field_type, StructType):
                 lines += field.field_type._pretty_lines(2)
@@ -247,7 +247,7 @@ class StructType(Type):
 
     def __repr__(self) -> str:
         fields = ", ".join(str(field) for field in self.fields)
-        return f"<StructType {self.name}: {fields}>"
+        return f"<StructType {self.struct_name}: {fields}>"
 
     def __str__(self) -> str:
         fields = ", ".join(str(field) for field in self.fields)
@@ -255,6 +255,10 @@ class StructType(Type):
 
     @property
     def name(self) -> str:
+        return f"struct {self._name}"
+
+    @property
+    def struct_name(self) -> str:
         return self._name
 
     @property

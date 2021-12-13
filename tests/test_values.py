@@ -120,7 +120,7 @@ class TestStructValue:
         assert issubclass(struct_class, StructValue)
 
         struct = struct_class(int_field=7)
-        assert struct.type.name == 'test'
+        assert struct.type.name == 'struct test'
         assert isinstance(struct.int_field, IntValue)
         assert int(struct.int_field) == 7
         assert isinstance(struct.self_ptr, PointerValue)
