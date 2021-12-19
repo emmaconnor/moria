@@ -1,7 +1,9 @@
+import math
 import pytest
+import struct
 
 from moria.arch import Endianness
-from moria.basetypes import IntType, StructField
+from moria.basetypes import FloatType, IntType, StructField
 from moria.values import (
     ArrayValue,
     IntValue,
@@ -622,3 +624,85 @@ class TestInt:
                 ns.UnsignedInt.unpack_from_buffer(b"123")
             with pytest.raises(ValueError):
                 ns.UnsignedInt.unpack_from_buffer(b"12345")
+
+
+class TestFloat:
+    def test_repr_str(self) -> None:
+        for ns in make_namespaces():
+            f = ns.Float(1.5)
+            assert repr(f) == '<float 1.5>'
+            assert str(f) == '1.5'
+
+    def test_convert(self) -> None:
+        for ns in make_namespaces():
+            f = ns.Float(1.5)
+            assert float(f) == 1.5
+            assert int(f) == 1
+            with pytest.raises(ValueError):
+                float(ns.Float())
+
+    def test_copy(self) -> None:
+        for ns in make_namespaces():
+            original = ns.Float(1.5)
+            copy = original.copy()
+
+            assert original is not copy
+            assert original.value == 1.5
+            assert copy.value == 1.5
+
+            original.value = 0.0
+            assert original.value == 0.0
+            assert copy.value == 1.5
+
+            copy.value = 2.0
+            assert original.value == 0.0
+            assert copy.value == 2.0
+
+    def test_cast(self) -> None:
+        for ns in make_namespaces():
+            assert ns.Float.cast(0).value == 0.0
+            assert ns.Float.cast(0.0).value == 0.0
+            with pytest.raises(TypeError):
+                ns.Float.cast(b"12345")
+
+    def test_iter_referenced_values(self) -> None:
+        ns = make_namespace(endian=Endianness.LITTLE, word_size=4)
+        struct_type = ns.get_or_create_struct_type('test')
+        struct_type.add_field(StructField(ns, 0, ns.Float.type, 'float_field'))
+
+        struct_class = ns.get_class_for_type(struct_type)
+        assert issubclass(struct_class, StructValue)
+
+        struct = struct_class(float_field=0.1)
+        refs = list(struct.float_field.iter_referenced_values())
+        assert len(refs) == 1
+        assert struct in refs
+
+    def test_pack_unpack(self) -> None:
+        for ns in make_namespaces():
+            float_cases = [
+                (ns.Float, 0, b'\x00\x00\x00\x00'),
+                (ns.Float, 1, b'\x3f\x80\x00\x00'),
+                (ns.Float, 0.1, b'\x3d\xcc\xcc\xcd'),
+                (ns.Float, 3123.541824671293, b'\x45\x43\x38\xab'),
+                (ns.Float, float('inf'), b'\x7f\x80\x00\x00'),
+                (ns.Float, float('-inf'), b'\xff\x80\x00\x00'),
+                (ns.Float, float('nan'), b'\x7f\xc0\x00\x00'),
+                (ns.Double, 123.15234, b'\x40\x5e\xc9\xbf\xf0\x45\x77\xd9'),
+                (ns.HalfFloat, 0.1, b'\x2e\x66'),
+            ]
+            for float_class, value, bytes_value in float_cases:
+                if ns.arch.endianness == Endianness.LITTLE:
+                    bytes_value = bytes_value[::-1]
+                if float_class.type.size == 4:
+                    value = struct.unpack('<f', struct.pack('<f', value))[0]
+                elif float_class.type.size == 2:
+                    value = struct.unpack('<e', struct.pack('<e', value))[0]
+
+                assert float_class(value).pack() == bytes_value
+                unpacked_value = float_class.unpack_from_buffer(bytes_value).value
+                assert unpacked_value == value or (
+                    math.isnan(unpacked_value) and math.isnan(value))
+            assert ns.Float().pack() == b'\x00\x00\x00\x00'
+            with pytest.raises(ValueError):
+                ns.Float.unpack_from_buffer(b'')

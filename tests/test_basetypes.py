@@ -1,6 +1,6 @@
 import pytest
 from tests.helpers import make_namespace, make_namespaces, amd64_namespace
-from moria.basetypes import IntType, PointerType, StructField, StructType
+from moria.basetypes import FloatType, IntType, PointerType, StructField, StructType
 
 
 class TestType:
@@ -31,6 +31,22 @@ class TestIntType:
 
             assert(str(ns.Char.type) == 'char')
             assert(repr(ns.Char.type) == '<IntType 1 byte, signed>')
+
+
+class TestFloatType:
+    def test_str_repr(self):
+        for ns in make_namespaces():
+            assert(str(ns.Float.type) == 'float')
+            assert(repr(ns.Float.type) == '<FloatType 4 bytes>')
+            with pytest.raises(ValueError):
+                FloatType(ns, 'bad_float', 3)
+
+    def test_hash_eq(self):
+        for ns in make_namespaces():
+            my_float_type = FloatType(ns, 'float', 4)
+            assert ns.Float.type == my_float_type
+            assert(hash(ns.Float.type) == hash(my_float_type))
+            assert ns.Double.type != my_float_type
 
 
 class TestArrayType:
@@ -116,7 +132,8 @@ class TestStructType:
 
             partial_int_type = IntType(ns, 'partial_int_t', None, False)
             partial_field_struct = StructType(ns, 'struct pfs')
-            partial_field_struct.add_field(StructField(ns, 0, partial_int_type, 'partial'))
+            partial_field_struct.add_field(
+                StructField(ns, 0, partial_int_type, 'partial'))
             assert partial_field_struct.size is None
 
     def test_eq(self):

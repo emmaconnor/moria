@@ -13,7 +13,14 @@ from moria.arch import Arch
 from moria.pack import HeapPacker
 
 import moria.basetypes as basetypes
-from moria.values import ArrayValue, PointerValue, Value, StructValue, IntValue
+from moria.values import (
+    ArrayValue,
+    PointerValue,
+    Value,
+    StructValue,
+    IntValue,
+    FloatValue
+)
 
 
 class Namespace:
@@ -39,6 +46,10 @@ class Namespace:
     UInt32: PyType[IntValue]
     Int64: PyType[IntValue]
     UInt64: PyType[IntValue]
+
+    HalfFloat: PyType[FloatValue]
+    Float: PyType[FloatValue]
+    Double: PyType[FloatValue]
 
     VoidPointer: PyType[PointerValue]
 
@@ -100,6 +111,21 @@ class Namespace:
         self.UInt32 = self._create_typed_integer_class("uint32_t", 4, False)
         self.Int64 = self._create_typed_integer_class("int64_t", 8, True)
         self.UInt64 = self._create_typed_integer_class("uint64_t", 8, False)
+
+        float_class = self.get_class_for_type(
+            basetypes.FloatType(self, '__fp16', 2))
+        assert(issubclass(float_class, FloatValue))
+        self.HalfFloat = float_class
+
+        float_class = self.get_class_for_type(
+            basetypes.FloatType(self, 'float', 4))
+        assert(issubclass(float_class, FloatValue))
+        self.Float = float_class
+
+        double_class = self.get_class_for_type(
+            basetypes.FloatType(self, 'double', 8))
+        assert(issubclass(double_class, FloatValue))
+        self.Double = double_class
 
         void_pointer_class = self.get_class_for_type(
             basetypes.IntType(self, 'void', None, False).get_pointer_type())
@@ -201,6 +227,8 @@ class Namespace:
     def _get_superclass_for_type(self, t: basetypes.Type) -> PyType[Value]:
         if isinstance(t, basetypes.IntType):
             return IntValue
+        if isinstance(t, basetypes.FloatType):
+            return FloatValue
         elif isinstance(t, basetypes.PointerType):
             return PointerValue
         elif isinstance(t, basetypes.ArrayType):

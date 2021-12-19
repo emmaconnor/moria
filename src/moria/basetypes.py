@@ -1,8 +1,10 @@
 from __future__ import annotations
+import struct
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Optional, List
+from typing import Any, ClassVar, Optional, List
 from typing import Type as PyType
+from moria.arch import Endianness
 
 from moria.util import SortedList
 import moria.namespace as ns
@@ -98,6 +100,83 @@ class IntType(Type):
         un = "un" if not self.signed else ""
         s = "s" if self.size != 1 else ""
         return f"<IntType {self.size} byte{s}, {un}signed>"
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class FloatType(Type):
+    namespace: ns.Namespace
+    _name: str
+    _size: int
+    format: FloatFormat
+
+    @dataclass
+    class FloatFormat:
+        format_string: str
+        exponent_bits: int
+        mantissa_bits: int
+        exponent_bias: int
+
+    float_formats: ClassVar[dict[int, FloatFormat]] = {
+        2: FloatFormat('e', 5, 10, 15),
+        4: FloatFormat('f', 8, 23, 127),
+        8: FloatFormat('d', 11, 52, 1023),
+    }
+
+    def __init__(self, namespace: ns.Namespace, name: str, size: int) -> None:
+        self.namespace = namespace
+        self._name = name
+        format = self.float_formats.get(size)
+        if format is None:
+            raise ValueError(f"Unsupported floating-point size {size}.")
+        self.format = format
+
+        self._size = size
+
+    @property
+    def min(self) -> float:
+        return -self.max
+
+    @property
+    def max(self) -> float:
+        max_exponent = (1 << self.format.exponent_bits) - 2 - self.format.exponent_bias
+        max_mantissa = 1 + ((1 << self.format.mantissa_bits)-1) / \
+            (1 << self.format.mantissa_bits)
+        return max_mantissa * (2**max_exponent)
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def size(self) -> int:
+        return self._size
+
+    def __hash__(self) -> int:
+        return hash((self.__class__, self.namespace, self._size))
+
+    def __eq__(self, other: Type) -> bool:
+        return (
+            isinstance(other, FloatType)
+            and other.namespace is self.namespace
+            and other._size == self._size
+        )
+
+    @property
+    def format_string(self) -> str:
+        endian_format = '<' if self.namespace.arch.endianness == Endianness.LITTLE else '>'
+        return endian_format + self.format.format_string
+
+    def pack(self, value: float) -> bytes:
+        return struct.pack(self.format_string, value)
+
+    def unpack(self, buffer: bytes) -> float:
+        return struct.unpack(self.format_string, buffer)[0]
+
+    def __repr__(self) -> str:
+        s = "s" if self.size != 1 else ""
+        return f"<FloatType {self.size} byte{s}>"
 
     def __str__(self) -> str:
         return self.name

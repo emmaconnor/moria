@@ -276,6 +276,104 @@ class IntValue(Value):
         )
 
 
+class FloatValue(Value):
+    type: ClassVar[basetypes.FloatType]
+    value: Optional[float]
+
+    def __init__(
+        self,
+        value: Optional[float] = None,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ):
+        super().__init__(address_base, offset)
+        if value is not None and value > self.type.max:
+            value = float('inf')
+        if value is not None and value < self.type.min:
+            value = float('-inf')
+        self.value = value
+
+    @classmethod
+    def unpack_from_buffer(
+        cls,
+        buffer: bytes,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ):
+        assert cls.type.size is not None
+        if len(buffer) != cls.type.size:
+            raise ValueError(
+                f"Invalid length to unpack type {cls.type}: "
+                f"need {cls.type.size} bytes, got {len(buffer)}"
+            )
+        val = cls.type.unpack(buffer)
+        return cls(value=val, address_base=address_base, offset=offset)
+
+    @classmethod
+    def cast(
+        cls,
+        value: Value.CompatibleType,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ) -> FloatValue:
+        float_val: Optional[float] = None
+        if isinstance(value, int):
+            float_val = float(value)
+        elif isinstance(value, float):
+            float_val = value
+
+        if float_val is not None:
+            return cls(
+                value=float_val,
+                address_base=address_base,
+                offset=offset,
+            )
+
+        raise TypeError(
+            f"Type {cls.type} cannot be assigned from {type(value)}"
+        )
+
+    def iter_referenced_values(self) -> Iterable[Value]:
+        if self.address_base is not None:
+            yield self.address_base
+
+    def copy(
+        self,
+        address_base: Optional[Value] = None,
+        offset: Optional[int] = None,
+    ) -> FloatValue:
+        return self.__class__(
+            value=self.value,
+            address_base=address_base,
+            offset=offset,
+        )
+
+    def __float__(self) -> float:
+        if self.value is None:
+            raise ValueError(
+                "Cannot convert uninitialized float value to float"
+            )
+        return self.value
+
+    def __int__(self) -> int:
+        return int(float(self))
+
+    def __repr__(self) -> str:
+        value_str = (
+            str(self.value) if self.value is not None else "<uninitialized>"
+        )
+        return f"<{self.type.name} {value_str}>"
+
+    def __str__(self) -> str:
+        return str(self.value) if self.value is not None else "<uninitialized>"
+
+    def pack(self) -> bytes:
+        val = self.value
+        if val is None:
+            val = 0
+        return self.type.pack(val)
+
+
 class ArrayValue(Value):
     type: basetypes.ArrayType
 

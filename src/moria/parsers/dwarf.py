@@ -5,6 +5,7 @@ from elftools.dwarf.die import DIE
 
 from moria.arch import Arch, Endianness
 from moria.basetypes import (
+    FloatType,
     IntType,
     PointerType,
     ArrayType,
@@ -118,9 +119,12 @@ class DwarfParser:
                 DW_ATE_address,
                 DW_ATE_unsigned,
                 DW_ATE_unsigned_char,
-                DW_ATE_float, # TODO proper floating point support
             ):
                 return IntType(self.namespace, type_name, type_size, False)
+            elif encoding in (
+                DW_ATE_float,
+            ):
+                return FloatType(self.namespace, type_name, type_size)
             else:
                 raise NotImplementedError(f"Unsupported encoding: 0x{encoding:x}")
         elif type_die.tag == "DW_TAG_typedef":

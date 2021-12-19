@@ -7,9 +7,9 @@ from typing import BinaryIO, Iterable, List, Optional, Union
 import pytest
 from pytest_mock import MockerFixture
 from moria.arch import Endianness
-from moria.basetypes import IntType, PointerType, StructType
+from moria.basetypes import FloatType, IntType, PointerType, StructType
 
-from moria.parsers.dwarf import DW_ATE_address, DW_ATE_signed, DW_ATE_signed_char, DW_ATE_unsigned, DwarfParser
+from moria.parsers.dwarf import DW_ATE_address, DW_ATE_signed, DW_ATE_signed_char, DW_ATE_unsigned, DW_ATE_float, DwarfParser
 from moria.values import StructValue
 
 
@@ -138,6 +138,25 @@ int_die = {
         {
             'name': 'DW_AT_encoding',
             'value': DW_ATE_signed,
+        },
+    ],
+}
+
+double_die = {
+    'name': 'double',
+    'tag': 'DW_TAG_base_type',
+    'attributes': [
+        {
+            'name': 'DW_AT_name',
+            'value': 'double',
+        },
+        {
+            'name': 'DW_AT_byte_size',
+            'value': 8,
+        },
+        {
+            'name': 'DW_AT_encoding',
+            'value': DW_ATE_float,
         },
     ],
 }
@@ -302,6 +321,23 @@ child_struct_die = {
                 },
             ],
         },
+        {
+            'tag': 'DW_TAG_member',
+            'attributes': [
+                {
+                    'name': 'DW_AT_name',
+                    'value': 'child_double_field',
+                },
+                {
+                    'name': 'DW_AT_type',
+                    'die_ref': 'double',
+                },
+                {
+                    'name': 'DW_AT_data_member_location',
+                    'value': 8,
+                },
+            ],
+        },
     ],
 }
 
@@ -438,6 +474,7 @@ elf_data_amd64 = {
                         struct_die,
                         void_ptr_die,
                         child_struct_die,
+                        double_die,
                     ]
                 }
             }
@@ -522,6 +559,13 @@ class TestDwarf:
         assert isinstance(ns.test.type.fields[5].field_type.referenced_type, IntType)
         assert ns.test.type.fields[5].field_type.referenced_type.size is None
 
+        assert isinstance(ns.child_struct.type.fields[0].field_type, IntType)
+        assert ns.child_struct.type.fields[0].field_type.signed == False
+        assert ns.child_struct.type.fields[0].field_type.size == 8
+
+        assert isinstance(ns.child_struct.type.fields[1].field_type, FloatType)
+        assert ns.child_struct.type.fields[1].field_type.size == 8
+
         ns.print_structs()
         out, err = capfd.readouterr()
         assert err == ''
@@ -532,6 +576,7 @@ struct test {
   char[16] char_arr_field;
   struct child_struct {
     uint64_t child_uint64_field;
+    double child_double_field;
   };
   int num_field;
   partial_t* partial_ptr_field;
@@ -539,6 +584,7 @@ struct test {
 
 struct child_struct {
   uint64_t child_uint64_field;
+  double child_double_field;
 };
 '''[1:]
 
